@@ -9,6 +9,26 @@ from dot.utils.io import read_config
 from dot.utils.torch import get_grid, get_sobel_kernel
 
 
+def apply_gaussian_weights(alpha, confident_subset, sigma):
+    x_coords, y_coords = torch.meshgrid(torch.arange(alpha.size(0)), torch.arange(alpha.size(1)))
+    x_coords = x_coords.float()
+    y_coords = y_coords.float()
+    
+    weighted_alpha = torch.zeros_like(alpha, dtype=torch.float64)
+    
+    for confident_point in confident_subset:
+        distances_squared = (x_coords - confident_point[0])**2 + (y_coords - confident_point[1])**2
+        weights = torch.exp(-distances_squared / (2 * sigma**2))
+        weighted_alpha += weights
+    
+    # Normalization:
+    weighted_alpha /= torch.max(weighted_alpha)
+
+    weighted_alpha *= alpha
+    
+    return weighted_alpha
+
+
 class OpticalFlow(nn.Module):
     def __init__(self, height, width, config, load_path):
         super().__init__()
@@ -61,8 +81,7 @@ class OpticalFlow(nn.Module):
             video = video[None] # add dimension (batch)
 
         l = len(ii)
-        target = []
-        print(f'getting refined flow between frame {ii} to {jj}')
+        target, weight = [], []
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
@@ -79,19 +98,20 @@ class OpticalFlow(nn.Module):
             # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
             coarse_flow, coarse_alpha = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
-            flow = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
+            ## TODO: I need alpha here, so reverse the change slam_refinement=True part
+            flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
                                     tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
                                     src_feats=data["src_feats"] if "src_feats" in data else None,
                                     tgt_feats=data["tgt_feats"] if "tgt_feats" in data else None,
                                     coarse_flow=coarse_flow,
                                     coarse_alpha=coarse_alpha,
-                                    is_train=False,
-                                    slam_refinement=True)
-            print('flow.shape', flow.shape)
+                                    is_train=False)
+            # TODO: check dimensions of data["src_points"]
+            weighted_alpha = apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
+            weight.append(weighted_alpha)
             target.append(flow)
         target = torch.stack(target, dim=0)[None]
-        print('target.shape', target.shape)
-        return target
+        return target, weight
             
 
     def get_motion_boundaries(self, data, boundaries_size=1, boundaries_dilation=4, boundaries_thresh=0.025, **kwargs):
