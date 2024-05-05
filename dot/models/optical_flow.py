@@ -35,8 +35,64 @@ class OpticalFlow(nn.Module):
             return self.get_tracks_from_first_to_every_other_frame(data, **kwargs)
         elif mode == "flow_from_last_to_first_frame":
             return self.get_flow_from_last_to_first_frame(data, **kwargs)
+        elif mode == "flow_between_frames":
+            return self.get_flow_between_frames(data, **kwargs)
         else:
             raise ValueError(f"Unknown mode {mode}")
+        
+    def get_flow_between_frames(self, track, video, ii, jj):
+        """
+        Input: 
+            - track: track from CoTracker
+            - video: torch.Size([1000, 3, 384, 512])
+            - ii: torch.Size([60])
+            - jj: torch.Size([60])
+        Output:
+            - target: torch.Size([1, 60, 48, 64, 2])
+        """
+        T, C, h, w = video.shape
+        H, W = 512, 512
+        # reshape video 
+        # TODO: reshape it when inputing instead of doing it every time here
+        if h != H or w != W:
+            video = F.interpolate(video, size=(H, W), mode="bilinear")
+            video = video.reshape(T, C, H, W)[None]
+        else:
+            video = video[None] # add dimension (batch)
+
+        l = len(ii)
+        target = []
+        print(f'getting refined flow between frame {ii} to {jj}')
+        for idx in range(l):
+            i = ii[idx]
+            j = jj[idx]
+            src_points = track[:, i]
+            src_frame =  video[:, i]
+            tgt_points = track[:, j]
+            tgt_frame =  video[:, j]
+            data = {
+                "src_frame": src_frame,
+                "tgt_frame": tgt_frame,
+                "src_points": src_points,
+                "tgt_points": tgt_points
+            }
+            # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
+            coarse_flow, coarse_alpha = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
+                                                    version="torch3d")
+            flow = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
+                                    tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
+                                    src_feats=data["src_feats"] if "src_feats" in data else None,
+                                    tgt_feats=data["tgt_feats"] if "tgt_feats" in data else None,
+                                    coarse_flow=coarse_flow,
+                                    coarse_alpha=coarse_alpha,
+                                    is_train=False,
+                                    slam_refinement=True)
+            print('flow.shape', flow.shape)
+            target.append(flow)
+        target = torch.stack(target, dim=0)[None]
+        print('target.shape', target.shape)
+        return target
+            
 
     def get_motion_boundaries(self, data, boundaries_size=1, boundaries_dilation=4, boundaries_thresh=0.025, **kwargs):
         eps = 1e-12
