@@ -207,12 +207,11 @@ class CoTrackerPredictor(torch.nn.Module):
         visibilities[mask[:, :, :, 0]] = inv_visibilities[mask[:, :, :, 0]]
         return tracks, visibilities
 
-
 class CoTrackerOnlinePredictor(torch.nn.Module):
-    def __init__(self, checkpoint="./checkpoints/cotracker2.pth"):
+    def __init__(self, patch_size, wind_size):
         super().__init__()
         self.support_grid_size = 6
-        model = build_cotracker(checkpoint)
+        model = build_cotracker(patch_size, wind_size)
         self.interp_shape = model.model_resolution
         self.step = model.window_len // 2
         self.model = model
