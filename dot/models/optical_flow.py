@@ -9,14 +9,14 @@ from dot.utils.io import read_config
 from dot.utils.torch import get_grid, get_sobel_kernel
 
 
-def apply_gaussian_weights(alpha, confident_subset, sigma):
+def old_apply_gaussian_weights(alpha, cotracker_predictions, sigma):
     x_coords, y_coords = torch.meshgrid(torch.arange(alpha.size(0)), torch.arange(alpha.size(1)))
     x_coords = x_coords.float()
     y_coords = y_coords.float()
     
     weighted_alpha = torch.zeros_like(alpha, dtype=torch.float64)
     
-    for confident_point in confident_subset:
+    for confident_point in cotracker_predictions:
         distances_squared = (x_coords - confident_point[0])**2 + (y_coords - confident_point[1])**2
         weights = torch.exp(-distances_squared / (2 * sigma**2))
         weighted_alpha += weights
@@ -25,6 +25,25 @@ def apply_gaussian_weights(alpha, confident_subset, sigma):
     weighted_alpha /= torch.max(weighted_alpha)
 
     weighted_alpha *= alpha
+    
+    return weighted_alpha
+
+def apply_gaussian_weights(alpha, cotracker_predictions, sigma):
+    x_coords, y_coords = torch.meshgrid(torch.arange(alpha.size(0)), torch.arange(alpha.size(1)))
+    x_coords = x_coords.float()
+    y_coords = y_coords.float()
+
+    x_coords = x_coords.unsqueeze(-1)
+    y_coords = y_coords.unsqueeze(-1)
+
+    cotracker_predictions = cotracker_predictions.unsqueeze(0).unsqueeze(0)
+
+    distances_squared = (x_coords - cotracker_predictions[..., 0])**2 + (y_coords - cotracker_predictions[..., 1])**2
+    
+    weights = torch.exp(-distances_squared / (2 * sigma**2))
+    weighted_alpha = weights.sum(dim=-1)
+    weighted_alpha *= alpha    
+    weighted_alpha /= torch.max(weighted_alpha)
     
     return weighted_alpha
 
