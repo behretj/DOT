@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from .optical_flow import OpticalFlow
-from .shelf import CoTracker, CoTracker2, Tapir
+from .shelf import CoTracker, CoTracker2, Tapir, CoTracker2Online
 from dot.utils.io import read_config
 from dot.utils.torch import sample_points, sample_mask_points, get_grid
 
@@ -49,9 +49,9 @@ class PointTracker(nn.Module):
 
         N, S = 64, 64  # num_tracks, sim_tracks
         start = time.time()
-        video = data["video"]
+        video_chunck = data["video_chunck"]
 
-        B, T, _, H, W = video.shape
+        B, T, _, H, W = video_chunck.shape
         assert T>1 #require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
 
         assert T<3 #TO be removed but why is this function run with a long video ? (TODO : Is RAFT to good enough with two frames ?)
@@ -74,7 +74,7 @@ class PointTracker(nn.Module):
             raise ValueError(f"Unknown sample mode {sample_mode}")
 
         if flip:
-            video = video.flip(dims=[1])
+            video_chunck = video_chunck.flip(dims=[1])
 
         motion_boundaries = {}  #TODO consider saving it to the state if function need to be recalled, for know save memory
         src_points = []
@@ -84,15 +84,15 @@ class PointTracker(nn.Module):
                 continue
             if not src_step in motion_boundaries:
                 tgt_step = src_step - 1 if src_step > 0 else src_step + 1
-                data = {"src_frame": video[:, src_step], "tgt_frame": video[:, tgt_step]}
-                pred = optical_flow_estimator(data, mode="motion_boundaries", **kwargs)
+                data = {"src_frame": video_chunck[:, src_step], "tgt_frame": video_chunck[:, tgt_step]}
+                pred = self.optical_flow_estimator(data, mode="motion_boundaries", **kwargs)
                 motion_boundaries[src_step] = pred["motion_boundaries"]
             src_boundaries = motion_boundaries[src_step]
             src_points.append(sample_points(src_step, src_boundaries, src_samples))
 
         src_points = torch.cat(self.src_points, dim=1)
 
-        _, _ = self.model(video, self.src_points, is_first_step=True)
+        _, _ = self.modelOnline(video_chunck, self.src_points, is_first_step=True)
 
 
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
@@ -100,14 +100,17 @@ class PointTracker(nn.Module):
 
         N, S = 64, 64 #num_tracks, sim_tracks
         start = time.time()
-        video = data["video"]
+        video_chunck = data["video_chunk"]
 
-        B, T, _, H, W = video.shape
+        B, T, _, H, W = video_chunck.shape
 
-        if flip:
-            video = video.flip(dims=[1])
 
         backward_tracking = False
+        flip = False
+
+        if flip:
+            video_chunck = video_chunck.flip(dims=[1])
+
 
         # Track batches of points
         tracks = []
@@ -115,9 +118,9 @@ class PointTracker(nn.Module):
 
 
         if not self.CoTracker_initialized:
-            init_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048)
+            self.init_motion_boundaries(data, num_tracks=8192, sim_tracks=2048)
 
-        traj, vis = self.model(video, None, is_first_step=False)
+        traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
         tracks.append(torch.cat([traj, vis[..., None]], dim=-1))
         cache_features = False
         tracks = torch.cat(tracks, dim=2)
