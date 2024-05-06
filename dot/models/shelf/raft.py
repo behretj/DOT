@@ -118,7 +118,7 @@ class RAFT(nn.Module):
 
             # F(t+1) = F(t) + \Delta(t)
             tgt_pts = tgt_pts + delta_flow
-            if self.refine_alpha and not slam_refinement:
+            if self.refine_alpha:
                 alpha = alpha + delta_alpha
 
             # if True:
@@ -126,27 +126,22 @@ class RAFT(nn.Module):
                 # upsample predictions
                 flow_up = self.upsample_flow(tgt_pts - src_pts, up_mask)
                 # print('flow_up origin shape', flow_up.shape)
-                if self.refine_alpha and not slam_refinement:
+                if self.refine_alpha:
                     alpha_up = self.upsample_alpha(alpha, up_mask_alpha)
             else:
                 flow_up = tgt_pts - src_pts
+                alpha_up = alpha
                 # print('flow_up.shape', flow_up.shape)
 
             if is_train or (itr == self.num_iter - 1):
                 flows_up.append(self.postprocess_flow(flow_up))
-                if self.refine_alpha and not slam_refinement:
+                if self.refine_alpha:
                     alphas_up.append(self.postprocess_alpha(alpha_up))
 
         flows_up = torch.stack(flows_up, dim=1)
-        if slam_refinement:
-            alpha_up = None
-        else:
-            alphas_up = torch.stack(alphas_up, dim=1) if self.refine_alpha else None
+        alphas_up = torch.stack(alphas_up, dim=1) if self.refine_alpha else None
         if not is_train:
             flows_up = flows_up[:, 0]
-            if not slam_refinement:
-                alphas_up = alphas_up[:, 0] if self.refine_alpha else None
-        if slam_refinement:
-            return flows_up
+            alphas_up = alphas_up[:, 0] if self.refine_alpha else None
         
         return flows_up, alphas_up
