@@ -52,15 +52,15 @@ class OpticalFlow(nn.Module):
         Output:
             - target: torch.Size([1, 60, 48, 64, 2])
         """
-        T, C, h, w = video.shape
-        H, W = 512, 512
-        # reshape video 
-        # TODO: reshape it when inputing instead of doing it every time here
-        if h != H or w != W:
-            video = F.interpolate(video, size=(H, W), mode="bilinear")
-            video = video.reshape(T, C, H, W)[None]
-        else:
-            video = video[None] # add dimension (batch)
+        # T, C, h, w = video.shape
+        # H, W = 512, 512
+        # # reshape video 
+        # # TODO: reshape it when inputing instead of doing it every time here
+        # if h != H or w != W:
+        #     video = F.interpolate(video, size=(H, W), mode="bilinear")
+        #     video = video.reshape(T, C, H, W)[None]
+        # else:
+        #     video = video[None] # add dimension (batch)
 
         l = len(ii)
         target = []
@@ -79,9 +79,12 @@ class OpticalFlow(nn.Module):
                 
             print(f'getting refined flow between frame {i} to {j}')
             src_points = track[:, i]
-            src_frame =  video[:, i]
+            # src_frame =  video[:, i]
+            src_frame =  video[i][None].cuda()
             tgt_points = track[:, j]
-            tgt_frame =  video[:, j]
+            # tgt_frame =  video[:, j]
+            tgt_frame =  video[j][None].cuda()
+
             data = {
                 "src_frame": src_frame,
                 "tgt_frame": tgt_frame,
