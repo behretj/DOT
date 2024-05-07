@@ -224,6 +224,7 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         # take the difference new_corner \ self.queries  = new_corner 
         # process next keypoints in order until nbr_corners_to_detect-len(new_corner) = 0 while appending keypoint not in self.queries
         #self.queries = new_corner
+        pass
 
 
     @torch.no_grad()
@@ -239,9 +240,9 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         # Initialize online video processing and save queried points
         # This needs to be done before processing *each new video*
 
-        threshold_nbr_tracks = 75
-        if self.queries is None or self.queries.shape[1]<threshold_nbr_tracks:
-            self.generate_queries_for_image(video_chunk[0], threshold_nbr_tracks-self.queries.shape[1])
+        #threshold_nbr_tracks = 75 TODO for adaptative harris sampling
+        #if self.queries is None or self.queries.shape[1]<threshold_nbr_tracks:
+        #    self.generate_queries_for_image(video_chunk[0], threshold_nbr_tracks-self.queries.shape[1])
 
 
         if is_first_step:

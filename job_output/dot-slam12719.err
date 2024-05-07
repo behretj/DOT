@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/home/tducrey/DOT-SLAM/evaluation_scripts/validate_tartanair.py", line 87, in <module>
+    droid = Droid(args)
+  File "/home/tducrey/DOT-SLAM/droid_slam/droid.py", line 28, in __init__
+    self.filterx = MotionFilter(self.net, self.video, thresh=args.filter_thresh)
+  File "/home/tducrey/DOT-SLAM/droid_slam/motion_filter.py", line 40, in __init__
+    self.online_point_tracker = PointTracker(tracker_height, tracker_width, tracker_config, tracker_path, estimator_config, estimator_path, isOnline=True)
+  File "/home/tducrey/DOT-SLAM/droid_slam/thirdparty/DOT/dot/models/point_tracking.py", line 20, in __init__
+    self.modelOnline.load_state_dict(torch.load(tracker_path, map_location=device), strict=False)
+  File "/cluster/courses/3dv/data/team-4/DOT-SLAM/env_dot-slam/lib/python3.10/site-packages/torch/serialization.py", line 997, in load
+    with _open_file_like(f, 'rb') as opened_file:
+  File "/cluster/courses/3dv/data/team-4/DOT-SLAM/env_dot-slam/lib/python3.10/site-packages/torch/serialization.py", line 444, in _open_file_like
+    return _open_file(name_or_buffer, mode)
+  File "/cluster/courses/3dv/data/team-4/DOT-SLAM/env_dot-slam/lib/python3.10/site-packages/torch/serialization.py", line 425, in __init__
+    super().__init__(open(name, mode))
+FileNotFoundError: [Errno 2] No such file or directory: 'checkpoints/movi_f_cotracker2_patch_4_wind_8.pth'

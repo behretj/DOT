@@ -1,6 +1,9 @@
 from tqdm import tqdm
 import torch
 from torch import nn
+import time
+import cv2
+import numpy as np
 
 from .optical_flow import OpticalFlow
 from .shelf import CoTracker, CoTracker2, Tapir, CoTracker2Online
@@ -43,13 +46,72 @@ class PointTracker(nn.Module):
             raise ValueError(f"Unknown mode {mode}")
 
 
+    def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
+        print("harris_n_corner_detection : src_frame_tensor.shape ", src_frame_tensor.shape)
+        r, g, b = src_frame_tensor[:,0,:,:], src_frame_tensor[:,1,:,:], src_frame_tensor[:,2,:,:]
+        print("harris_n_corner_detection : r,g,b.shape ", r.shape, g.shape, b.shape)
+        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b # according to the human eye may not be best here
+
+        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
+        print("harris_n_corner_detection : gray_tensor.shape ", grayscale_tensor.shape)
+        grayscale_numpy = grayscale_tensor.numpy()
+        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+        print("harris_n_corner_detection : dst.shape ", dst.shape)
+        #get the N strongest corners indexes
+        flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:] 
+        print("harris_n_corner_detection : Ncorners.shape ", type(flattened_dst_strongest_corner_indexes))
+        Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
+        print("harris_n_corner_detection : Ncorners.shape ", Ncorners.shape)
+
+
+        raise NotImplementedError
+
+    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
+                                                        sample_mode="first",
+                                                        **kwargs): 
+
+            N, S = 64, 64  # num_tracks, sim_tracks
+            start = time.time()
+            video_chunck = data["video_chunk"]
+
+            B, T, _, H, W = video_chunck.shape
+            assert T>=1 #require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
+            
+            samples_per_step = [S // T for _ in range(T)]
+            samples_per_step[0] += S - sum(samples_per_step)
+            backward_tracking = True
+            flip = False
+           
+
+            if flip:
+                video_chunck = video_chunck.flip(dims=[1])
+
+            src_frames = {} 
+            src_points = []
+
+            for src_step, src_samples in enumerate(samples_per_step):
+                if src_samples == 0:
+                    continue
+                if not src_step in src_frames:
+                    src_frame = video_chunck[:, src_step]
+                    Ncorners = self.harris_n_corner_detection(src_frame, N)
+                    src_frames[src_step] = Ncorners
+                src_corners = src_frames[src_step]
+                src_points.append(src_corners)
+
+            src_points = torch.cat(self.src_points, dim=1)
+
+            _, _ = self.modelOnline(video_chunck, self.src_points, is_first_step=True)
+            self.OnlineCoTracker_initialized = True
+
+
     def init_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048,
                                                      sample_mode="first",
-                                                     **kwargs):
+                                                     **kwargs): 
 
         N, S = 64, 64  # num_tracks, sim_tracks
         start = time.time()
-        video_chunck = data["video_chunck"]
+        video_chunck = data["video_chunk"]
 
         B, T, _, H, W = video_chunck.shape
         assert T>1 #require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
@@ -76,7 +138,7 @@ class PointTracker(nn.Module):
         if flip:
             video_chunck = video_chunck.flip(dims=[1])
 
-        motion_boundaries = {}  #TODO consider saving it to the state if function need to be recalled, for know save memory
+        motion_boundaries = {}  #TODO consider saving it to the state if function need to be recalled, for now save memory
         src_points = []
 
         for src_step, src_samples in enumerate(samples_per_step):
@@ -93,6 +155,7 @@ class PointTracker(nn.Module):
         src_points = torch.cat(self.src_points, dim=1)
 
         _, _ = self.modelOnline(video_chunck, self.src_points, is_first_step=True)
+        self.OnlineCoTracker_initialized = True
 
 
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
@@ -117,8 +180,8 @@ class PointTracker(nn.Module):
         cache_features = True
 
 
-        if not self.CoTracker_initialized:
-            self.init_motion_boundaries(data, num_tracks=8192, sim_tracks=2048)
+        if not self.OnlineCoTracker_initialized:
+            self.init_harris(data, num_tracks=8192, sim_tracks=2048)
 
         traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
         tracks.append(torch.cat([traj, vis[..., None]], dim=-1))
