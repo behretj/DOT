@@ -18,5 +18,5 @@ class CoTracker2Online(nn.Module):
         self.model = CoTrackerOnlinePredictor(args.patch_size, args.wind_size)
 
     def forward(self, video_chunk, queries, is_first_step=False):
-        return self.model(video_chunk, is_first_step=False, queries=queries,)
+        return self.model(video_chunk, is_first_step, queries=queries)
 

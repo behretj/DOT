@@ -245,7 +245,10 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
         #    self.generate_queries_for_image(video_chunk[0], threshold_nbr_tracks-self.queries.shape[1])
 
 
+        _, _, _, H, W = video_chunk.shape
+        print("CoTrackerOnlinePredictor forward is_first_step", is_first_step)
         if is_first_step:
+            print("CoTrackerOnlinePredictor doing first step ")  
             self.model.init_video_online_processing()
             #TODO if the line 243 executed no need to do the rest of this method
             if queries is not None:

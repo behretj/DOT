@@ -63,9 +63,8 @@ class PointTracker(nn.Module):
         Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
         print("harris_n_corner_detection : Ncorners.shape ", Ncorners.shape)
 
-
-        raise NotImplementedError
-
+        return Ncorners
+    
     def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
                                                         sample_mode="first",
                                                         **kwargs): 
@@ -95,13 +94,22 @@ class PointTracker(nn.Module):
                 if not src_step in src_frames:
                     src_frame = video_chunck[:, src_step]
                     Ncorners = self.harris_n_corner_detection(src_frame, N)
-                    src_frames[src_step] = Ncorners
+                    src_steps_tensor = torch.full((N, 1), src_step)
+                    src_frames[src_step] = torch.cat((src_steps_tensor,Ncorners), dim=1) #coordonate contain src_frame_index
+                    src_frames[src_step] = torch.stack([src_frames[src_step]], dim=0)
+                    print("init_harris : src_frames[src_step].shape", src_frames[src_step].shape)
+                    print("init_harris : src_frames[src_step]", src_frames[src_step])
                 src_corners = src_frames[src_step]
                 src_points.append(src_corners)
 
-            src_points = torch.cat(self.src_points, dim=1)
+            #src_points[0].shape torch.Size([1, 64, 3])
+            src_points = torch.cat(src_points, dim=1)
 
-            _, _ = self.modelOnline(video_chunck, self.src_points, is_first_step=True)
+            #src_points = torch.Size([1, 64, 3]) #3 = (frame=0, height_y width_x)
+            print("init_harris : src_points.shape", src_points.shape)
+
+
+            _, _ = self.modelOnline(video_chunck, src_points, is_first_step=True)
             self.OnlineCoTracker_initialized = True
 
 
