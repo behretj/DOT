@@ -60,6 +60,8 @@ class OpticalFlow(nn.Module):
             self.model.load_state_dict(torch.load(load_path, map_location=device))
         coarse_height, coarse_width = height // model_args.patch_size, width // model_args.patch_size
         self.register_buffer("coarse_grid", get_grid(coarse_height, coarse_width))
+        self.refined_flow = dict()
+        self.refined_weight = dict()
 
     def forward(self, data, mode, **kwargs):
         if mode == "flow_with_tracks_init":
@@ -89,25 +91,38 @@ class OpticalFlow(nn.Module):
         Output:
             - target: torch.Size([1, 60, 48, 64, 2])
         """
-        T, C, h, w = video.shape
-        H, W = 512, 512
-        # reshape video 
-        # TODO: reshape it when inputing instead of doing it every time here
-        if h != H or w != W:
-            video = F.interpolate(video, size=(H, W), mode="bilinear")
-            video = video.reshape(T, C, H, W)[None]
-        else:
-            video = video[None] # add dimension (batch)
+        # T, C, h, w = video.shape
+        # H, W = 512, 512
+        # # reshape video 
+        # # TODO: reshape it when inputing instead of doing it every time here
+        # if h != H or w != W:
+        #     video = F.interpolate(video, size=(H, W), mode="bilinear")
+        #     video = video.reshape(T, C, H, W)[None]
+        # else:
+        #     video = video[None] # add dimension (batch)
 
         l = len(ii)
         target, weight = [], []
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
+            if i not in self.refined_flow.keys():
+                self.refined_flow[i] = dict()
+                self.refined_weight[i] = dict()
+            else:
+                if j in self.refined_flow[i].keys():
+                    target.append(self.refined_flow[i][j])
+                    weight.append(self.refined_weight[i][j])
+                    continue
+                
+            print(f'getting refined flow between frame {i} to {j}')
             src_points = track[:, i]
-            src_frame =  video[:, i]
+            # src_frame =  video[:, i]
+            src_frame =  video[i][None].cuda()
             tgt_points = track[:, j]
-            tgt_frame =  video[:, j]
+            # tgt_frame =  video[:, j]
+            tgt_frame =  video[j][None].cuda()
+
             data = {
                 "src_frame": src_frame,
                 "tgt_frame": tgt_frame,
@@ -117,7 +132,6 @@ class OpticalFlow(nn.Module):
             # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
             coarse_flow, coarse_alpha = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
-            ## TODO: I need alpha here, so reverse the change slam_refinement=True part
             flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
                                     tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
                                     src_feats=data["src_feats"] if "src_feats" in data else None,
@@ -125,11 +139,18 @@ class OpticalFlow(nn.Module):
                                     coarse_flow=coarse_flow,
                                     coarse_alpha=coarse_alpha,
                                     is_train=False)
-            # TODO: check dimensions of data["src_points"]
-            weighted_alpha = apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
-            weight.append(weighted_alpha)
-            target.append(flow)
+            # TODO: make this dynamic (only works for 512, 512 right now)
+            print(flow, alpha)
+            H, W = 512, 512
+            # weighted_alpha = apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
+            self.refined_flow[i][j] = flow[0]
+            self.refined_weight[i][j] = alpha[0]
+            target.append(flow[0])
+            weight.append(alpha[0])
         target = torch.stack(target, dim=0)[None]
+        weight = torch.stack(weight, dim=0)[None]
+        print('target.shape', target.shape)
+        print('weight.shape', weight.shape)
         return target, weight
             
 
