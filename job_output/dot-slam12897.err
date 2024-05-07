@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/home/tducrey/DOT-SLAM/evaluation_scripts/validate_tartanair.py", line 87, in <module>
+    droid = Droid(args)
+  File "/home/tducrey/DOT-SLAM/droid_slam/droid.py", line 28, in __init__
+    self.filterx = MotionFilter(self.net, self.video, thresh=args.filter_thresh)
+  File "/home/tducrey/DOT-SLAM/droid_slam/motion_filter.py", line 41, in __init__
+    self.online_point_tracker = PointTracker(tracker_height, tracker_width, tracker_config, tracker_path, estimator_config, estimator_path, isOnline=True)
+  File "/home/tducrey/DOT-SLAM/droid_slam/thirdparty/DOT/dot/models/point_tracking.py", line 23, in __init__
+    self.modelOnline.load_state_dict(torch.load(tracker_path, map_location=device), strict=False)
+  File "/cluster/courses/3dv/data/team-4/DOT-SLAM/env_dot-slam/lib/python3.10/site-packages/torch/nn/modules/module.py", line 2189, in load_state_dict
+    raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(
+RuntimeError: Error(s) in loading state_dict for CoTracker2Online:
+	size mismatch for model.model.time_emb: copying a param with shape torch.Size([1, 8, 456]) from checkpoint, the shape in current model is torch.Size([1, 2, 456]).

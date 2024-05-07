@@ -15,7 +15,7 @@ class CoTracker2(nn.Module):
 class CoTracker2Online(nn.Module):
     def __init__(self, args):
         super().__init__()
-        self.model = CoTrackerOnlinePredictor(args.patch_size, args.wind_size)
+        self.model = CoTrackerOnlinePredictor(args.patch_size, 2)
 
     def forward(self, video_chunk, queries, is_first_step=False):
         return self.model(video_chunk, is_first_step, queries=queries)
