@@ -190,6 +190,7 @@ class PointTracker(nn.Module):
 
         if not self.OnlineCoTracker_initialized:
             self.init_harris(data, num_tracks=8192, sim_tracks=2048)
+            return {"tracks": tracks}
 
         traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
         tracks.append(torch.cat([traj, vis[..., None]], dim=-1))

@@ -1,15 +1,0 @@
-/cluster/courses/3dv/data/team-4/DOT-SLAM/env_dot-slam/lib/python3.10/site-packages/torch/functional.py:512: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3587.)
-  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
-0it [00:00, ?it/s]0it [00:00, ?it/s]
-Traceback (most recent call last):
-  File "/home/tducrey/DOT-SLAM/evaluation_scripts/validate_tartanair.py", line 100, in <module>
-    traj_est = droid.terminate(image_stream(scenedir))
-  File "/home/tducrey/DOT-SLAM/droid_slam/droid.py", line 82, in terminate
-    self.backend(7)
-  File "/cluster/courses/3dv/data/team-4/DOT-SLAM/env_dot-slam/lib/python3.10/site-packages/torch/utils/_contextlib.py", line 115, in decorate_context
-    return func(*args, **kwargs)
-  File "/home/tducrey/DOT-SLAM/droid_slam/droid_backend.py", line 34, in __call__
-    graph.add_proximity_factors(rad=self.backend_radius, 
-  File "/home/tducrey/DOT-SLAM/droid_slam/factor_graph.py", line 391, in add_proximity_factors
-    ii, jj = torch.as_tensor(es, device=self.device).unbind(dim=-1)
-ValueError: not enough values to unpack (expected 2, got 0)
