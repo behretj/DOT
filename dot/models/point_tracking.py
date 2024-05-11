@@ -71,7 +71,7 @@ class PointTracker(nn.Module):
 
             N, S = 64, 64  # num_tracks, sim_tracks
             start = time.time()
-            video_chunck = data["video_chunk"]
+            video_chunck = data["video_chunk"].to('cpu')
 
             B, T, _, H, W = video_chunck.shape
             assert T>=1 #require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
@@ -98,7 +98,7 @@ class PointTracker(nn.Module):
                     src_frames[src_step] = torch.cat((src_steps_tensor,Ncorners), dim=1) #coordonate contain src_frame_index
                     src_frames[src_step] = torch.stack([src_frames[src_step]], dim=0)
                     print("init_harris : src_frames[src_step].shape", src_frames[src_step].shape)
-                    print("init_harris : src_frames[src_step]", src_frames[src_step])
+                    # print("init_harris : src_frames[src_step]", src_frames[src_step])
                 src_corners = src_frames[src_step]
                 src_points.append(src_corners)
 
@@ -109,7 +109,7 @@ class PointTracker(nn.Module):
             print("init_harris : src_points.shape", src_points.shape)
 
 
-            _, _ = self.modelOnline(video_chunck, src_points, is_first_step=True)
+            _, _ = self.modelOnline(video_chunck.to('cuda'), src_points.to('cuda'), is_first_step=True)
             self.OnlineCoTracker_initialized = True
 
 

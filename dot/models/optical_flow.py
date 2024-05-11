@@ -120,7 +120,7 @@ class OpticalFlow(nn.Module):
                     weight.append(self.refined_weight[i][j])
                     continue
                 
-            print(f'getting refined flow between frame {i} to {j}')
+            print(f'optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i]
             # src_frame =  video[:, i]
             src_frame =  video[i][None].cuda()
@@ -143,7 +143,8 @@ class OpticalFlow(nn.Module):
                                     tgt_feats=data["tgt_feats"] if "tgt_feats" in data else None,
                                     coarse_flow=coarse_flow,
                                     coarse_alpha=coarse_alpha,
-                                    is_train=False)
+                                    is_train=False,
+                                    slam_refinement=True)
             # TODO: make this dynamic (only works for 512, 512 right now)
             H, W = 512, 512
             weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
@@ -152,7 +153,9 @@ class OpticalFlow(nn.Module):
             target.append(flow[0])
             weight.append(weighted_alpha[0])
         target = torch.stack(target, dim=0)[None]
+        print('optical_flow: target.shape', target.shape)
         weight = torch.stack(weight, dim=0)[None]
+        print('optical_flow: weight.shape', weight.shape)
         return target, weight
             
 
