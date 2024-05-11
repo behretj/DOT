@@ -37,6 +37,7 @@ class DenseOpticalTracker(nn.Module):
         else:
             raise ValueError(f"Unknown mode {mode}")
 
+
     def get_flow_from_last_to_first_frame(self, data, **kwargs):
         B, T, C, h, w = data["video"].shape
         init = self.point_tracker(data, mode="tracks_at_motion_boundaries", **kwargs)["tracks"]

@@ -1,39 +1,217 @@
 from tqdm import tqdm
 import torch
 from torch import nn
+import time
+import cv2
+import numpy as np
 
 from .optical_flow import OpticalFlow
-from .shelf import CoTracker, CoTracker2, Tapir
+from .shelf import CoTracker, CoTracker2, Tapir, CoTracker2Online
 from dot.utils.io import read_config
 from dot.utils.torch import sample_points, sample_mask_points, get_grid
 
 
 class PointTracker(nn.Module):
-    def __init__(self,  height, width, tracker_config, tracker_path, estimator_config, estimator_path):
+    def __init__(self,  height, width, tracker_config, tracker_path, estimator_config, estimator_path, isOnline=False):
         super().__init__()
         model_args = read_config(tracker_config)
-        model_dict = {
-            "cotracker": CoTracker,
-            "cotracker2": CoTracker2,
-            "tapir": Tapir,
-            "bootstapir": Tapir
-        }
-        self.name = model_args.name
-        self.model = model_dict[model_args.name](model_args)
-        if tracker_path is not None:
-            device = next(self.model.parameters()).device
-            self.model.load_state_dict(torch.load(tracker_path, map_location=device), strict=False)
+        if isOnline:
+            self.OnlineCoTracker_initialized = False
+            self.modelOnline = CoTracker2Online(model_args)
+            if tracker_path is not None:
+                device = next(self.modelOnline.parameters()).device
+                self.modelOnline.load_state_dict(torch.load(tracker_path, map_location=device), strict=False)
+        else:
+            model_dict = {
+                "cotracker": CoTracker,
+                "cotracker2": CoTracker2,
+                "tapir": Tapir,
+                "bootstapir": Tapir
+            }
+            self.name = model_args.name
+            self.model = model_dict[model_args.name](model_args)
+            if tracker_path is not None:
+                device = next(self.model.parameters()).device
+                self.model.load_state_dict(torch.load(tracker_path, map_location=device), strict=False)
         self.optical_flow_estimator = OpticalFlow(height, width, estimator_config, estimator_path)
 
     def forward(self, data, mode, **kwargs):
         if mode == "tracks_at_motion_boundaries":
             return self.get_tracks_at_motion_boundaries(data, **kwargs)
+        elif mode == "tracks_at_motion_boundaries_online_droid":
+            return self.get_tracks_at_motion_boundaries_online_droid(data, **kwargs)
         elif mode == "flow_from_last_to_first_frame":
             return self.get_flow_from_last_to_first_frame(data, **kwargs)
         else:
             raise ValueError(f"Unknown mode {mode}")
 
-    def get_tracks_at_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048, sample_mode="all", **kwargs):
+
+    def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
+        print("harris_n_corner_detection : src_frame_tensor.shape ", src_frame_tensor.shape)
+        r, g, b = src_frame_tensor[:,0,:,:], src_frame_tensor[:,1,:,:], src_frame_tensor[:,2,:,:]
+        print("harris_n_corner_detection : r,g,b.shape ", r.shape, g.shape, b.shape)
+        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b # according to the human eye may not be best here
+
+        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
+        print("harris_n_corner_detection : gray_tensor.shape ", grayscale_tensor.shape)
+        grayscale_numpy = grayscale_tensor.numpy()
+        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+        print("harris_n_corner_detection : dst.shape ", dst.shape)
+        #get the N strongest corners indexes
+        flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:] 
+        print("harris_n_corner_detection : Ncorners.shape ", type(flattened_dst_strongest_corner_indexes))
+        Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
+        print("harris_n_corner_detection : Ncorners.shape ", Ncorners.shape)
+
+        return Ncorners
+    
+    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
+                                                        sample_mode="first",
+                                                        **kwargs): 
+
+            N, S = 64, 64  # num_tracks, sim_tracks
+            start = time.time()
+            video_chunck = data["video_chunk"]
+
+            B, T, _, H, W = video_chunck.shape
+            assert T>=1 #require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
+            
+            samples_per_step = [S // T for _ in range(T)]
+            samples_per_step[0] += S - sum(samples_per_step)
+            backward_tracking = True
+            flip = False
+           
+
+            if flip:
+                video_chunck = video_chunck.flip(dims=[1])
+
+            src_frames = {} 
+            src_points = []
+
+            for src_step, src_samples in enumerate(samples_per_step):
+                if src_samples == 0:
+                    continue
+                if not src_step in src_frames:
+                    src_frame = video_chunck[:, src_step]
+                    Ncorners = self.harris_n_corner_detection(src_frame, N)
+                    src_steps_tensor = torch.full((N, 1), src_step)
+                    src_frames[src_step] = torch.cat((src_steps_tensor,Ncorners), dim=1) #coordonate contain src_frame_index
+                    src_frames[src_step] = torch.stack([src_frames[src_step]], dim=0)
+                    print("init_harris : src_frames[src_step].shape", src_frames[src_step].shape)
+                    print("init_harris : src_frames[src_step]", src_frames[src_step])
+                src_corners = src_frames[src_step]
+                src_points.append(src_corners)
+
+            #src_points[0].shape torch.Size([1, 64, 3])
+            src_points = torch.cat(src_points, dim=1)
+
+            #src_points = torch.Size([1, 64, 3]) #3 = (frame=0, height_y width_x)
+            print("init_harris : src_points.shape", src_points.shape)
+
+
+            _, _ = self.modelOnline(video_chunck, src_points, is_first_step=True)
+            self.OnlineCoTracker_initialized = True
+
+
+    def init_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048,
+                                                     sample_mode="first",
+                                                     **kwargs): 
+
+        N, S = 64, 64  # num_tracks, sim_tracks
+        start = time.time()
+        video_chunck = data["video_chunk"]
+
+        B, T, _, H, W = video_chunck.shape
+        assert T>1 #require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
+
+        assert T<3 #TO be removed but why is this function run with a long video ? (TODO : Is RAFT to good enough with two frames ?)
+        if sample_mode == "all":
+            samples_per_step = [S // T for _ in range(T)]
+            samples_per_step[0] += S - sum(samples_per_step)
+            backward_tracking = True
+            flip = False
+        elif sample_mode == "first":
+            samples_per_step = [0 for _ in range(T)]
+            samples_per_step[0] += S
+            backward_tracking = False #TODO changed this does it impact ? also for the main tracking funcion
+            flip = False
+        elif sample_mode == "last":
+            samples_per_step = [0 for _ in range(T)]
+            samples_per_step[0] += S
+            backward_tracking = False
+            flip = True
+        else:
+            raise ValueError(f"Unknown sample mode {sample_mode}")
+
+        if flip:
+            video_chunck = video_chunck.flip(dims=[1])
+
+        motion_boundaries = {}  #TODO consider saving it to the state if function need to be recalled, for now save memory
+        src_points = []
+
+        for src_step, src_samples in enumerate(samples_per_step):
+            if src_samples == 0:
+                continue
+            if not src_step in motion_boundaries:
+                tgt_step = src_step - 1 if src_step > 0 else src_step + 1
+                data = {"src_frame": video_chunck[:, src_step], "tgt_frame": video_chunck[:, tgt_step]}
+                pred = self.optical_flow_estimator(data, mode="motion_boundaries", **kwargs)
+                motion_boundaries[src_step] = pred["motion_boundaries"]
+            src_boundaries = motion_boundaries[src_step]
+            src_points.append(sample_points(src_step, src_boundaries, src_samples))
+
+        src_points = torch.cat(self.src_points, dim=1)
+
+        _, _ = self.modelOnline(video_chunck, self.src_points, is_first_step=True)
+        self.OnlineCoTracker_initialized = True
+
+
+    def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
+                                        **kwargs):
+
+        N, S = 64, 64 #num_tracks, sim_tracks
+        start = time.time()
+        video_chunck = data["video_chunk"]
+
+        B, T, _, H, W = video_chunck.shape
+
+
+        backward_tracking = False
+        flip = False
+
+        if flip:
+            video_chunck = video_chunck.flip(dims=[1])
+
+
+        # Track batches of points
+        tracks = []
+        cache_features = True
+
+
+        if not self.OnlineCoTracker_initialized:
+            self.init_harris(data, num_tracks=8192, sim_tracks=2048)
+            return {"tracks": tracks}
+
+        traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
+        tracks.append(torch.cat([traj, vis[..., None]], dim=-1))
+        cache_features = False
+        tracks = torch.cat(tracks, dim=2)
+
+        if flip:
+            tracks = tracks.flip(dims=[1])
+        end = time.time()
+        print('runtime for tracking:', end - start)
+
+        return {"tracks": tracks}
+
+
+
+    def get_tracks_at_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048, sample_mode="all",
+                                        **kwargs):
+        num_tracks, sim_tracks = 64, 64
+        print('num_tracks', num_tracks)
+        print('sim_tracks', sim_tracks)
+        start = time.time()
         video = data["video"]
         N, S = num_tracks, sim_tracks
         B, T, _, H, W = video.shape
@@ -61,6 +239,8 @@ class PointTracker(nn.Module):
         if flip:
             video = video.flip(dims=[1])
 
+        backward_tracking = False
+
         # Track batches of points
         tracks = []
         motion_boundaries = {}
@@ -77,6 +257,7 @@ class PointTracker(nn.Module):
                     motion_boundaries[src_step] = pred["motion_boundaries"]
                 src_boundaries = motion_boundaries[src_step]
                 src_points.append(sample_points(src_step, src_boundaries, src_samples))
+
             src_points = torch.cat(src_points, dim=1)
             traj, vis = self.model(video, src_points, backward_tracking, cache_features)
             tracks.append(torch.cat([traj, vis[..., None]], dim=-1))
@@ -85,6 +266,8 @@ class PointTracker(nn.Module):
 
         if flip:
             tracks = tracks.flip(dims=[1])
+        end = time.time()
+        print('runtime for tracking:', end - start)
 
         return {"tracks": tracks}
 
