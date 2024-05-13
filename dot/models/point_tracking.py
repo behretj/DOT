@@ -93,8 +93,8 @@ class PointTracker(nn.Module):
                     continue
                 if not src_step in src_frames:
                     src_frame = video_chunck[:, src_step]
-                    Ncorners = self.harris_n_corner_detection(src_frame, N)
-                    src_steps_tensor = torch.full((N, 1), src_step)
+                    Ncorners = self.harris_n_corner_detection(src_frame, src_samples)
+                    src_steps_tensor = torch.full((src_samples, 1), src_step)
                     src_frames[src_step] = torch.cat((src_steps_tensor,Ncorners), dim=1) #coordonate contain src_frame_index
                     src_frames[src_step] = torch.stack([src_frames[src_step]], dim=0)
                     print("init_harris : src_frames[src_step].shape", src_frames[src_step].shape)
