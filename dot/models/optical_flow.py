@@ -100,8 +100,8 @@ class OpticalFlow(nn.Module):
             # move the stored refined_flow and weight to ..._inac
             for i in ii:
                 for j in jj:
-                    self.refined_flow_inac = self.refined_flow[i][j].to('cpu')
-                    self.refined_weight_inac = self.refined_weight[i][j].to('cpu')
+                    self.refined_flow_inac = self.refined_flow[i][j]
+                    self.refined_weight_inac = self.refined_weight[i][j]
         # delete the refined_flow and weight
         for i in ii:
             for j in jj:
@@ -142,8 +142,8 @@ class OpticalFlow(nn.Module):
                     weight.append(self.refined_weight[i][j])
                     continue
                 elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
-                    target.append(self.refined_flow[i][j].to('cuda'))
-                    weight.append(self.refined_weight[i][j].to('cuda'))
+                    target.append(self.refined_flow[i][j])
+                    weight.append(self.refined_weight[i][j])
                     continue
                 
             print(f'optical flow: getting refined flow between frame {i} to {j}')
