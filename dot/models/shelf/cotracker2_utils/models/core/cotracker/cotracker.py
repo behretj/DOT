@@ -203,8 +203,6 @@ class CoTracker2(nn.Module):
         S = self.window_len
         device = queries.device
 
-        print("forward.Cotracker2 : video.shape", video.shape)
-        print("forward.Cotracker2 : elf.window_len", self.window_len)
 
 
         # B = batch size
@@ -248,7 +246,6 @@ class CoTracker2(nn.Module):
             else:
                 # Pad online predictions with zeros for the current window
                 pad = min(step, T - step)
-                print("forward cotracker2 : self.online_coords_predicted.shape, pad", self.online_coords_predicted.shape, pad)
                 coords_predicted = F.pad(
                     self.online_coords_predicted, (0, 0, 0, 0, 0, pad), "constant"
                 )
@@ -302,10 +299,6 @@ class CoTracker2(nn.Module):
             if ind > 0:
                 overlap = S - step
                 copy_over = (queried_frames < ind + overlap)[:, None, :, None]  # B 1 N 1
-                print("cotrackeronline forward : ind, overlap", ind, overlap)
-                print("cotrackeronline forward : coords_predicted.shape", coords_predicted.shape)
-                print("cotrackeronline forward : coords_predicted[:, ind : ind + overlap].shape", coords_predicted[:, ind : ind + overlap].shape)
-                print("cotrackeronline forward : (coords_predicted[:, ind : ind + overlap]/ self.stride) .shape", (coords_predicted[:, ind : ind + overlap]/ self.stride).shape)
                 coords_prev = torch.nn.functional.pad(
                     coords_predicted[:, ind : ind + overlap] / self.stride,
                     (0, 0, 0, 0, 0, step),
@@ -348,9 +341,6 @@ class CoTracker2(nn.Module):
             )
 
             S_trimmed = T if is_online else min(T - ind, S)  # accounts for last window duration
-            print("forward cotracker : coords_predicted.shape", coords_predicted.shape)
-            print("forward cotracker : coords", coords[-1].shape)
-            print("forward cotracker : ind, S, S_trimmed", ind, S, S_trimmed)
             coords_predicted[:, ind : ind + S] = coords[-1][:, :S_trimmed]
             vis_predicted[:, ind : ind + S] = vis[:, :S_trimmed]
             if is_train:
@@ -358,9 +348,7 @@ class CoTracker2(nn.Module):
                 all_vis_predictions.append(torch.sigmoid(vis[:, :S_trimmed]))
 
         if is_online:
-            print("Incrementing self.online_ind by step", self.online_ind, step)
             self.online_ind += step
-            print("Post incrementing self.online_ind", self.online_ind)
             self.online_coords_predicted = coords_predicted
             self.online_vis_predicted = vis_predicted
         vis_predicted = torch.sigmoid(vis_predicted)
