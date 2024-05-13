@@ -65,8 +65,10 @@ class OpticalFlow(nn.Module):
             self.model.load_state_dict(torch.load(load_path, map_location=device))
         coarse_height, coarse_width = height // model_args.patch_size, width // model_args.patch_size
         self.register_buffer("coarse_grid", get_grid(coarse_height, coarse_width))
-        self.refined_flow = dict()
-        self.refined_weight = dict()
+        self.refined_flow = dict() # aka. self.target, refined_flow[i][j] (i, j are index for consecutive frames)
+        self.refined_weight = dict() # aka. self.weight
+        self.refined_flow_inac = dict()
+        self.refined_weight_inac = dict()
 
     def forward(self, data, mode, **kwargs):
         if mode == "flow_with_tracks_init":
@@ -86,6 +88,26 @@ class OpticalFlow(nn.Module):
         else:
             raise ValueError(f"Unknown mode {mode}")
         
+    def reset_inac(self, ii, jj):
+        # remove the ii&jj from inac
+        for i in ii:
+            for j in jj:
+                self.refined_flow_inac[i].pop(j)
+                self.refined_weight_inac[i].pop(j)
+    
+    def rm_flows(self, ii, jj, store=False):
+        if store:
+            # move the stored refined_flow and weight to ..._inac
+            for i in ii:
+                for j in jj:
+                    self.refined_flow_inac = self.refined_flow[i][j].to('cpu')
+                    self.refined_weight_inac = self.refined_weight[i][j].to('cpu')
+        # delete the refined_flow and weight
+        for i in ii:
+            for j in jj:
+                self.refined_flow[i].pop(j)
+                self.refined_weight[i].pop(j)
+    
     def get_flow_between_frames(self, track, video, ii, jj):
         """
         Input: 
@@ -111,13 +133,17 @@ class OpticalFlow(nn.Module):
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
-            if i not in self.refined_flow.keys():
+            if i not in self.refined_flow.keys() and i not in self.refined_weight_inac.keys():
                 self.refined_flow[i] = dict()
                 self.refined_weight[i] = dict()
             else:
-                if j in self.refined_flow[i].keys():
+                if i in self.refined_flow.keys() and j in self.refined_flow[i].keys():
                     target.append(self.refined_flow[i][j])
                     weight.append(self.refined_weight[i][j])
+                    continue
+                elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
+                    target.append(self.refined_flow[i][j].to('cuda'))
+                    weight.append(self.refined_weight[i][j].to('cuda'))
                     continue
                 
             print(f'optical flow: getting refined flow between frame {i} to {j}')
