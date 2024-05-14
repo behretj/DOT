@@ -10,6 +10,23 @@ from .shelf import CoTracker, CoTracker2, Tapir, CoTracker2Online
 from dot.utils.io import read_config
 from dot.utils.torch import sample_points, sample_mask_points, get_grid
 
+import matplotlib.pyplot as plt
+
+def vis_harris(Ncorners, src_frame):
+    image = src_frame.squeeze().permute(1, 2, 0).numpy()
+
+    # Create a plot
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.imshow(image)
+    ax.scatter(Ncorners[:, 0], Ncorners[:, 1], c='red', s=40, marker='o')  # Plot corners as red points
+
+    # Remove axis ticks for better visualization
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Save the plot as an image
+    fig.savefig('corners_visualization.png')
+    plt.close(fig)  # Close the figure to free up memory
 
 class PointTracker(nn.Module):
     def __init__(self,  height, width, tracker_config, tracker_path, estimator_config, estimator_path, isOnline=False):

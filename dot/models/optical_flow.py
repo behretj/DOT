@@ -10,6 +10,33 @@ from dot.utils.torch import get_grid, get_sobel_kernel
 
 import matplotlib.pyplot as plt
 
+def vis_gaussian_weighting(tensor1, tensor2, i, j):
+    tensor1 = tensor1.squeeze(0)
+    tensor2 = tensor2.squeeze(0)
+
+    channel_1 = tensor1[:, :, 0]
+    channel_2 = tensor2[:, :, 0]
+
+    channel_1_cpu = channel_1.cpu().numpy()
+    channel_2_cpu = channel_2.cpu().numpy()
+
+    # Create a figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+    # Plot the first channel
+    im1= axes[0].imshow(channel_1_cpu, cmap='gray')
+    axes[0].set_title('Regular Gaussian')
+    plt.colorbar(im1, ax=axes[0], orientation='vertical', label='Value')
+
+    # Plot the second channel
+    im2 = axes[1].imshow(channel_2_cpu, cmap='gray')
+    axes[1].set_title('Fast Gaussian')
+    plt.colorbar(im2, ax=axes[1], orientation='vertical', label='Value')
+
+    # Save the figure
+    plt.savefig(f'gaussian_weighting_{i}_{j}.png')
+    plt.close(fig)
+
 def old_apply_gaussian_weights(alpha, cotracker_predictions, sigma):
     y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
     x_coords = x_coords.float().to(device="cuda:0", dtype=torch.long)
