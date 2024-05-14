@@ -170,8 +170,12 @@ class OpticalFlow(nn.Module):
                                     slam_refinement=True)
             # TODO: make this dynamic (only works for 512, 512 right now)
             H, W = 512, 512
-            # weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
-            weighted_alpha = apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05)
+            # weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.01) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
+            # bring the coordinates back to image dimension:
+            gaussian_src_points = src_points.clone().detach()
+            gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
+            gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
+            weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
             self.refined_flow[i][j] = flow[0]
             self.refined_weight[i][j] = weighted_alpha[0]
             target.append(flow[0])
