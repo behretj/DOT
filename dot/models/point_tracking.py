@@ -97,6 +97,7 @@ class PointTracker(nn.Module):
             Ncorners = self.harris_n_corner_detection(src_frame, nbr_new_keypoint) #TODO sample intelligently uniformly in each cell of a 9x9 grid 
             
             print("Nbr of points resampled : ", nbr_new_keypoint)
+            print("points kept during resampling : ",init_queries_first_frame)
             
             # add the prior = the keypoint still visible from the last tracks
             queries_2d_coords = torch.cat((init_queries_first_frame, Ncorners), dim=0)
@@ -120,7 +121,7 @@ class PointTracker(nn.Module):
             _, _ = self.modelOnline(video_chunck.to('cuda'), src_points.to('cuda'), is_first_step=True)
             self.OnlineCoTracker_initialized = True
 
-    def merge_accumulated_tracks(self, tracks, track_overlap=4):
+    def merge_accumulated_tracks(self, tracks, track_overlap=4, matching_threshold = 15):
 
         if self.accumulated_tracks is None: 
             return tracks
@@ -128,28 +129,61 @@ class PointTracker(nn.Module):
         print("merge_accumulated_tracks : tracks.shape", tracks.shape)
         print("merge_accumulated_tracks : self.accumulated_tracks.shape", self.accumulated_tracks.shape)
 
-        if self.accumulated_tracks_end_dict is None:
-            self.accumulated_tracks_end_dict = {}
-            for i in range(self.accumulated_tracks.shape[2]):
-                self.accumulated_tracks_end_dict[self.accumulated_tracks[0,-track_overlap,i,:2]] = i # save index of every end(just before overlap) of track accumulated 
+        #if self.accumulated_tracks_end_dict is None:
+        #    self.accumulated_tracks_end_dict = {}
+        #    for i in range(self.accumulated_tracks.shape[2]):
+        #        self.accumulated_tracks_end_dict[self.accumulated_tracks[0,-track_overlap,i,:2]] = i # save index of every end(just before overlap) of track accumulated 
+        #        print(self.accumulated_tracks[0,-track_overlap,i,:])
+        
+        
         
         increase_track_size = tracks.shape[1]-track_overlap
-        p3d = (0, 0, 0, increase_track_size, 0, 0, 0, 0) # (0, 1, 2, 1, 3, 3) # pad by (0, 1)=dim0 padding, (2, 1)=dim1 padding, and (3, 3)
+        p3d = (0, 0, 0, 0, 0, increase_track_size, 0, 0) # (0, 1, 2, 1, 3, 3) # pad by (0, 1)=last dim padding, (2, 1)=second to last dim padding, and (3, 3)
         out_tracks = torch.nn.functional.pad(self.accumulated_tracks, p3d, "constant", 0)
         start_of_new_track = tracks.shape[1] #start position from right of the new track 
         
+        
+
+
+        acumulated_track_end = self.accumulated_tracks[0,-track_overlap,:,:2]
+        new_tracks_start = tracks[0,0,:,:2]
+        pairwise_norm = torch.cdist(acumulated_track_end, new_tracks_start, p=2) # p=2 => = eucnlidean norm 
+        new_to_acumulated= torch.argmin(pairwise_norm, dim=0)
+        acumulate_to_new = torch.argmin(pairwise_norm, dim=1)
+        #print("pairwise_norm", pairwise_norm)
+
+     
 
         count1, count2 = 0,0
-        for j in range(tracks.shape[2]): #for every track
-            if tracks[0, 0, j, :2] in self.accumulated_tracks_end_dict:
+        for tr in range(tracks.shape[2]):
+            #print("pairwise_norm", pairwise_norm[new_to_acumulated[tr],tr])
+            if pairwise_norm[new_to_acumulated[tr],tr] < matching_threshold:
                 count1 +=1
-                original_track = self.accumulated_tracks_end_dict[tracks[0, 0, j, :2]]
-                out_tracks[:,-start_of_new_track:,original_track,:] = tracks[:, :, j, :]
+                out_tracks[:,-start_of_new_track:,new_to_acumulated[tr],:] = tracks[:, :, tr, :]
             else:
                 count2 +=1
-                p3d = (0, 0, 0, 0, 0, 1, 0, 0)
+                p3d = (0, 0, 0, 1, 0, 0, 0, 0)
                 out_tracks = torch.nn.functional.pad(out_tracks, p3d, "constant", 0)
-                out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
+                out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, tr, :]
+
+
+
+
+
+        #print("-------------------------------")
+
+        #count1, count2 = 0,0
+        #for j in range(tracks.shape[2]): #for every track
+        #    print(tracks[0, 0, j, :])
+        #    if tracks[0, 0, j, :2] in self.accumulated_tracks_end_dict:
+        #        count1 +=1
+        #        original_track = self.accumulated_tracks_end_dict[tracks[0, 0, j, :2]]
+        #        out_tracks[:,-start_of_new_track:,original_track,:] = tracks[:, :, j, :]
+        #    else:
+        #        count2 +=1
+        #        p3d = (0, 0, 0, 1, 0, 0, 0, 0)
+        #        out_tracks = torch.nn.functional.pad(out_tracks, p3d, "constant", 0)
+        #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
         print("merge_accumulated_tracks : out_tracks.shape, count1, count2", out_tracks.shape, count1, count2)
         return out_tracks
