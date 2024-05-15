@@ -94,9 +94,6 @@ class PointTracker(nn.Module):
             if flip:
                 video_chunck = video_chunck.flip(dims=[1])
 
-
-
-
             src_points = []
             src_step = 0
             nbr_samples = S
@@ -104,20 +101,52 @@ class PointTracker(nn.Module):
 
             #print("init_harris : init_queries_first_frame.shape", init_queries_first_frame.shape)
 
-
-
-
-
-
             #add the new keypoint to replace the keypoints we lost
             nbr_new_keypoint = nbr_samples-init_queries_first_frame.shape[0]
-            Ncorners = self.harris_n_corner_detection(src_frame, nbr_new_keypoint) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+
+            src_frame.shape[2]//2
+            center_point = (src_frame.shape[2]//2, src_frame.shape[3]//2)
+            
+            to_resample = (nbr_samples//4, nbr_samples//4, nbr_samples//4, nbr_samples//4)
+
+            for i in range(init_queries_first_frame.shape[0]):
+                if init_queries_first_frame[i][0]<=center_point[0]:
+                    if init_queries_first_frame[i][1]<=center_point[1]:
+                        to_resample[0] -= 1
+                    else:
+                        to_resample[1] -= 1
+                else: 
+                    if init_queries_first_frame[i][1]<=center_point[1]:
+                        to_resample[2] -= 1
+                    else:
+                        to_resample[3] -= 1
+
+            print("init_harris src_frame.shape ", src_frame.shape)
+
+
+            
+            Ncorners = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],:center_point[1]], max(0,to_resample[0])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            
+            Ncorners1 = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],center_point[1]:], max(0,to_resample[1])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners1[:,1] += center_point[1]
+
+            Ncorners2 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,:center_point[1]], max(0,to_resample[2])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners1[:,0] += center_point[0]
+
+            Ncorners3 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,center_point[1]:], max(0,to_resample[3])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners1[:,0] += center_point[0]
+            Ncorners1[:,1] += center_point[1]
+
+
 
             print("Nbr of points resampled : ", nbr_new_keypoint)
             #print("points kept during resampling : ",init_queries_first_frame)
             
             # add the prior = the keypoint still visible from the last tracks
             queries_2d_coords = torch.cat((init_queries_first_frame, Ncorners), dim=0)
+            queries_2d_coords = torch.cat((queries_2d_coords, Ncorners1), dim=0)
+            queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
+            queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
 
 
 
@@ -205,6 +234,7 @@ class PointTracker(nn.Module):
         print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
         return out_tracks
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
+
 
 
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
