@@ -113,26 +113,32 @@ class OpticalFlow(nn.Module):
         
     def reset_inac(self, ii, jj):
         # remove the ii&jj from inac
-        for i in ii:
-            for j in jj:
-                self.refined_flow_inac[i].pop(j)
-                self.refined_weight_inac[i].pop(j)
+        for idx in len(ii):
+            i = ii[idx]
+            j = jj[idx]
+            self.refined_flow_inac[i].pop(j)
+            self.refined_weight_inac[i].pop(j)
     
     def rm_flows(self, ii, jj, store=False):
+        print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
+        # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
         if store:
             # move the stored refined_flow and weight to ..._inac
-            for i in ii:
-                for j in jj:
-                    if i not in self.refined_flow_inac.keys():
-                        self.refined_flow_inac[i] = dict()
-                        self.refined_weight_inac[i] = dict()
-                    self.refined_flow_inac[i][j] = self.refined_flow[i][j]
-                    self.refined_weight_inac[i][j] = self.refined_weight[i][j]
+            for idx in range(len(ii)):
+                i = ii[idx]
+                j = jj[idx]
+                if i not in self.refined_flow_inac.keys():
+                    self.refined_flow_inac[i] = dict()
+                    self.refined_weight_inac[i] = dict()
+                # print('keys for {i}:', self.refined_flow[i].keys())
+                self.refined_flow_inac[i][j] = self.refined_flow[i][j]
+                self.refined_weight_inac[i][j] = self.refined_weight[i][j]
         # delete the refined_flow and weight
-        for i in ii:
-            for j in jj:
-                self.refined_flow[i].pop(j)
-                self.refined_weight[i].pop(j)
+        for idx in range(len(ii)):
+            i = ii[idx]
+            j = jj[idx]
+            self.refined_flow[i].pop(j)
+            self.refined_weight[i].pop(j)
     
     def get_flow_between_frames(self, track, video, ii, jj):
         """
