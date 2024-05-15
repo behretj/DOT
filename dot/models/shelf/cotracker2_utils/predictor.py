@@ -246,9 +246,7 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
 
 
         _, _, _, H, W = video_chunk.shape
-        print("CoTrackerOnlinePredictor forward is_first_step", is_first_step)
-        if is_first_step:
-            print("CoTrackerOnlinePredictor doing first step ")  
+        if is_first_step: 
             self.model.init_video_online_processing()
             #TODO if the line 243 executed no need to do the rest of this method
             if queries is not None:

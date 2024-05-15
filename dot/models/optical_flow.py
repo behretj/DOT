@@ -8,6 +8,73 @@ from .interpolation import interpolate
 from dot.utils.io import read_config
 from dot.utils.torch import get_grid, get_sobel_kernel
 
+import matplotlib.pyplot as plt
+
+def vis_gaussian_weighting(tensor1, tensor2, i, j):
+    tensor1 = tensor1.squeeze(0)
+    tensor2 = tensor2.squeeze(0)
+
+    channel_1 = tensor1[:, :, 0]
+    channel_2 = tensor2[:, :, 0]
+
+    channel_1_cpu = channel_1.cpu().numpy()
+    channel_2_cpu = channel_2.cpu().numpy()
+
+    # Create a figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+    # Plot the first channel
+    im1= axes[0].imshow(channel_1_cpu, cmap='gray')
+    axes[0].set_title('Regular Gaussian')
+    plt.colorbar(im1, ax=axes[0], orientation='vertical', label='Value')
+
+    # Plot the second channel
+    im2 = axes[1].imshow(channel_2_cpu, cmap='gray')
+    axes[1].set_title('Fast Gaussian')
+    plt.colorbar(im2, ax=axes[1], orientation='vertical', label='Value')
+
+    # Save the figure
+    plt.savefig(f'gaussian_weighting_{i}_{j}.png')
+    plt.close(fig)
+
+def old_apply_gaussian_weights(alpha, cotracker_predictions, sigma):
+    y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
+    x_coords = x_coords.float().to(device="cuda:0", dtype=torch.long)
+    y_coords = y_coords.float().to(device="cuda:0", dtype=torch.long)
+    
+    cotracker_predictions = cotracker_predictions.squeeze(0)
+    
+    weighted_alpha = torch.zeros_like(alpha)
+    
+    for confident_point in cotracker_predictions:
+        if confident_point[2]: # if track visible at that point TODO
+            distances_squared = (x_coords - confident_point[0])**2 + (y_coords - confident_point[1])**2
+            weights = torch.exp(-distances_squared / (2 * sigma**2))
+            weighted_alpha += weights
+    
+    weighted_alpha *= alpha
+    weighted_alpha /= torch.max(weighted_alpha)
+    weighted_alpha = weighted_alpha.unsqueeze(-1)
+    
+    return weighted_alpha.repeat(1, 1, 1, 2) # duplicate every value along a new dimension to achieve torch.Size([1, 512, 512, 2])
+
+def apply_gaussian_weights(alpha, cotracker_predictions, sigma):
+    y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
+    x_coords = x_coords.float().to(device="cuda:0").unsqueeze(0)
+    y_coords = y_coords.float().to(device="cuda:0").unsqueeze(0)
+
+    cotracker_predictions = cotracker_predictions.squeeze(0).unsqueeze(1).unsqueeze(2)
+    
+    distances_squared = (x_coords - cotracker_predictions[:,:,:,0])**2 + (y_coords - cotracker_predictions[:,:,:,1])**2
+    
+    weights = torch.exp(-distances_squared / (2 * sigma**2))
+    weights *= cotracker_predictions[:,:,:,2]
+    weighted_alpha = torch.sum(weights, dim=0) * alpha
+    weighted_alpha /= torch.max(weighted_alpha)
+
+    return weighted_alpha.unsqueeze(-1).repeat(1, 1, 1, 2)
+
+
 
 class OpticalFlow(nn.Module):
     def __init__(self, height, width, config, load_path):
@@ -21,6 +88,10 @@ class OpticalFlow(nn.Module):
             self.model.load_state_dict(torch.load(load_path, map_location=device))
         coarse_height, coarse_width = height // model_args.patch_size, width // model_args.patch_size
         self.register_buffer("coarse_grid", get_grid(coarse_height, coarse_width))
+        self.refined_flow = dict() # aka. self.target, refined_flow[i][j] (i, j are index for consecutive frames)
+        self.refined_weight = dict() # aka. self.weight
+        self.refined_flow_inac = dict()
+        self.refined_weight_inac = dict()
 
     def forward(self, data, mode, **kwargs):
         if mode == "flow_with_tracks_init":
@@ -35,8 +106,110 @@ class OpticalFlow(nn.Module):
             return self.get_tracks_from_first_to_every_other_frame(data, **kwargs)
         elif mode == "flow_from_last_to_first_frame":
             return self.get_flow_from_last_to_first_frame(data, **kwargs)
+        elif mode == "flow_between_frames":
+            return self.get_flow_between_frames(data, **kwargs)
         else:
             raise ValueError(f"Unknown mode {mode}")
+        
+    def reset_inac(self, ii, jj):
+        # remove the ii&jj from inac
+        for i in ii:
+            for j in jj:
+                self.refined_flow_inac[i].pop(j)
+                self.refined_weight_inac[i].pop(j)
+    
+    def rm_flows(self, ii, jj, store=False):
+        if store:
+            # move the stored refined_flow and weight to ..._inac
+            for i in ii:
+                for j in jj:
+                    self.refined_flow_inac = self.refined_flow[i][j]
+                    self.refined_weight_inac = self.refined_weight[i][j]
+        # delete the refined_flow and weight
+        for i in ii:
+            for j in jj:
+                self.refined_flow[i].pop(j)
+                self.refined_weight[i].pop(j)
+    
+    def get_flow_between_frames(self, track, video, ii, jj):
+        """
+        Input: 
+            - track: track from CoTracker
+            - video: torch.Size([1000, 3, 384, 512])
+            - ii: torch.Size([60])
+            - jj: torch.Size([60])
+        Output:
+            - target: torch.Size([1, 60, 48, 64, 2])
+        """
+        # T, C, h, w = video.shape
+        # H, W = 512, 512
+        # # reshape video 
+        # # TODO: reshape it when inputing instead of doing it every time here
+        # if h != H or w != W:
+        #     video = F.interpolate(video, size=(H, W), mode="bilinear")
+        #     video = video.reshape(T, C, H, W)[None]
+        # else:
+        #     video = video[None] # add dimension (batch)
+
+        l = len(ii)
+        target, weight = [], []
+        for idx in range(l):
+            i = ii[idx]
+            j = jj[idx]
+            if i not in self.refined_flow.keys() and i not in self.refined_weight_inac.keys():
+                self.refined_flow[i] = dict()
+                self.refined_weight[i] = dict()
+            else:
+                if i in self.refined_flow.keys() and j in self.refined_flow[i].keys():
+                    target.append(self.refined_flow[i][j])
+                    weight.append(self.refined_weight[i][j])
+                    continue
+                elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
+                    target.append(self.refined_flow[i][j])
+                    weight.append(self.refined_weight[i][j])
+                    continue
+                
+            print(f'optical flow: getting refined flow between frame {i} to {j}')
+            src_points = track[:, i]
+            # src_frame =  video[:, i]
+            src_frame =  video[i][None].cuda()
+            tgt_points = track[:, j]
+            # tgt_frame =  video[:, j]
+            tgt_frame =  video[j][None].cuda()
+
+            data = {
+                "src_frame": src_frame,
+                "tgt_frame": tgt_frame,
+                "src_points": src_points,
+                "tgt_points": tgt_points
+            }
+            # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
+            coarse_flow, coarse_alpha = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
+                                                    version="torch3d")
+            flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
+                                    tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
+                                    src_feats=data["src_feats"] if "src_feats" in data else None,
+                                    tgt_feats=data["tgt_feats"] if "tgt_feats" in data else None,
+                                    coarse_flow=coarse_flow,
+                                    coarse_alpha=coarse_alpha,
+                                    is_train=False,
+                                    slam_refinement=True)
+            # TODO: make this dynamic (only works for 512, 512 right now)
+            H, W = 512, 512
+            # weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.01) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
+            # bring the coordinates back to image dimension:
+            gaussian_src_points = src_points.clone().detach()
+            gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
+            gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
+            weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
+            self.refined_flow[i][j] = flow[0]
+            self.refined_weight[i][j] = weighted_alpha[0]
+            target.append(flow[0])
+            weight.append(weighted_alpha[0])
+        target = torch.stack(target, dim=0)[None]
+        weight = torch.stack(weight, dim=0)[None]
+        return target, weight
+            
 
     def get_motion_boundaries(self, data, boundaries_size=1, boundaries_dilation=4, boundaries_thresh=0.025, **kwargs):
         eps = 1e-12

@@ -91,7 +91,7 @@ class RAFT(nn.Module):
         return up_alpha.reshape(N, 1, self.patch_size * H, self.patch_size * W)
 
     def forward(self, src_frame=None, tgt_frame=None, src_feats=None, tgt_feats=None, coarse_flow=None, coarse_alpha=None,
-                is_train=False):
+                is_train=False, slam_refinement=False):
         src_fmap, src_cmap = self.initialize_feats(src_feats, src_frame)
         tgt_fmap, _ = self.initialize_feats(tgt_feats, tgt_frame)
 
@@ -121,10 +121,17 @@ class RAFT(nn.Module):
             if self.refine_alpha:
                 alpha = alpha + delta_alpha
 
-            # upsample predictions
-            flow_up = self.upsample_flow(tgt_pts - src_pts, up_mask)
-            if self.refine_alpha:
-                alpha_up = self.upsample_alpha(alpha, up_mask_alpha)
+            # if True:
+            if not slam_refinement:
+                # upsample predictions
+                flow_up = self.upsample_flow(tgt_pts - src_pts, up_mask)
+                # print('flow_up origin shape', flow_up.shape)
+                if self.refine_alpha:
+                    alpha_up = self.upsample_alpha(alpha, up_mask_alpha)
+            else:
+                flow_up = tgt_pts - src_pts
+                alpha_up = alpha
+                # print('flow_up.shape', flow_up.shape)
 
             if is_train or (itr == self.num_iter - 1):
                 flows_up.append(self.postprocess_flow(flow_up))
@@ -136,4 +143,5 @@ class RAFT(nn.Module):
         if not is_train:
             flows_up = flows_up[:, 0]
             alphas_up = alphas_up[:, 0] if self.refine_alpha else None
+        
         return flows_up, alphas_up
