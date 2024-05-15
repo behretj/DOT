@@ -8,15 +8,43 @@ from .interpolation import interpolate
 from dot.utils.io import read_config
 from dot.utils.torch import get_grid, get_sobel_kernel
 
+import matplotlib.pyplot as plt
+
+def vis_gaussian_weighting(tensor1, tensor2, i, j):
+    tensor1 = tensor1.squeeze(0)
+    tensor2 = tensor2.squeeze(0)
+
+    channel_1 = tensor1[:, :, 0]
+    channel_2 = tensor2[:, :, 0]
+
+    channel_1_cpu = channel_1.cpu().numpy()
+    channel_2_cpu = channel_2.cpu().numpy()
+
+    # Create a figure with two subplots
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+    # Plot the first channel
+    im1= axes[0].imshow(channel_1_cpu, cmap='gray')
+    axes[0].set_title('Regular Gaussian')
+    plt.colorbar(im1, ax=axes[0], orientation='vertical', label='Value')
+
+    # Plot the second channel
+    im2 = axes[1].imshow(channel_2_cpu, cmap='gray')
+    axes[1].set_title('Fast Gaussian')
+    plt.colorbar(im2, ax=axes[1], orientation='vertical', label='Value')
+
+    # Save the figure
+    plt.savefig(f'gaussian_weighting_{i}_{j}.png')
+    plt.close(fig)
 
 def old_apply_gaussian_weights(alpha, cotracker_predictions, sigma):
-    x_coords, y_coords = torch.meshgrid(torch.arange(alpha.size(0)), torch.arange(alpha.size(1)))
+    y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
     x_coords = x_coords.float().to(device="cuda:0", dtype=torch.long)
     y_coords = y_coords.float().to(device="cuda:0", dtype=torch.long)
-
+    
     cotracker_predictions = cotracker_predictions.squeeze(0)
-
-    weighted_alpha = torch.zeros_like(alpha, dtype=torch.float64)
+    
+    weighted_alpha = torch.zeros_like(alpha)
     
     for confident_point in cotracker_predictions:
         if confident_point[2]: # if track visible at that point TODO
@@ -25,28 +53,23 @@ def old_apply_gaussian_weights(alpha, cotracker_predictions, sigma):
             weighted_alpha += weights
     
     weighted_alpha *= alpha
-    
-    # Normalization:
     weighted_alpha /= torch.max(weighted_alpha)
-
     weighted_alpha = weighted_alpha.unsqueeze(-1)
     
     return weighted_alpha.repeat(1, 1, 1, 2) # duplicate every value along a new dimension to achieve torch.Size([1, 512, 512, 2])
 
 def apply_gaussian_weights(alpha, cotracker_predictions, sigma):
-    x_coords, y_coords = torch.meshgrid(torch.arange(alpha.size(0)), torch.arange(alpha.size(1)))
-    x_coords = x_coords.float().to(device=cotracker_predictions.device)
-    y_coords = y_coords.float().to(device=cotracker_predictions.device)
+    y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
+    x_coords = x_coords.float().to(device="cuda:0").unsqueeze(0)
+    y_coords = y_coords.float().to(device="cuda:0").unsqueeze(0)
 
-    cotracker_predictions = cotracker_predictions[..., :2].squeeze(0)
-
-    x_diff = x_coords.unsqueeze(-1) - cotracker_predictions[..., 0].unsqueeze(-1).unsqueeze(-1)
-    y_diff = y_coords.unsqueeze(-1) - cotracker_predictions[..., 1].unsqueeze(-1).unsqueeze(-1)
-
-    distances_squared = x_diff**2 + y_diff**2
+    cotracker_predictions = cotracker_predictions.squeeze(0).unsqueeze(1).unsqueeze(2)
+    
+    distances_squared = (x_coords - cotracker_predictions[:,:,:,0])**2 + (y_coords - cotracker_predictions[:,:,:,1])**2
+    
     weights = torch.exp(-distances_squared / (2 * sigma**2))
-
-    weighted_alpha = torch.sum(weights, dim=-1, dtype=alpha.dtype).unsqueeze(-1) * alpha
+    weights *= cotracker_predictions[:,:,:,2]
+    weighted_alpha = torch.sum(weights, dim=0) * alpha
     weighted_alpha /= torch.max(weighted_alpha)
 
     return weighted_alpha.unsqueeze(-1).repeat(1, 1, 1, 2)
@@ -173,15 +196,18 @@ class OpticalFlow(nn.Module):
                                     slam_refinement=True)
             # TODO: make this dynamic (only works for 512, 512 right now)
             H, W = 512, 512
-            weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.05) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
+            # weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.01) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
+            # bring the coordinates back to image dimension:
+            gaussian_src_points = src_points.clone().detach()
+            gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
+            gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
+            weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
             self.refined_flow[i][j] = flow[0]
             self.refined_weight[i][j] = weighted_alpha[0]
             target.append(flow[0])
             weight.append(weighted_alpha[0])
         target = torch.stack(target, dim=0)[None]
-        print('optical_flow: target.shape', target.shape)
         weight = torch.stack(weight, dim=0)[None]
-        print('optical_flow: weight.shape', weight.shape)
         return target, weight
             
 
