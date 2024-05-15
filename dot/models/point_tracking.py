@@ -97,7 +97,7 @@ class PointTracker(nn.Module):
             Ncorners = self.harris_n_corner_detection(src_frame, nbr_new_keypoint) #TODO sample intelligently uniformly in each cell of a 9x9 grid 
             
             print("Nbr of points resampled : ", nbr_new_keypoint)
-            print("points kept during resampling : ",init_queries_first_frame)
+            #print("points kept during resampling : ",init_queries_first_frame)
             
             # add the prior = the keypoint still visible from the last tracks
             queries_2d_coords = torch.cat((init_queries_first_frame, Ncorners), dim=0)
@@ -126,8 +126,8 @@ class PointTracker(nn.Module):
         if self.accumulated_tracks is None: 
             return tracks
         
-        print("merge_accumulated_tracks : tracks.shape", tracks.shape)
-        print("merge_accumulated_tracks : self.accumulated_tracks.shape", self.accumulated_tracks.shape)
+        #print("merge_accumulated_tracks : tracks.shape", tracks.shape)
+        #print("merge_accumulated_tracks : self.accumulated_tracks.shape", self.accumulated_tracks.shape)
 
         #if self.accumulated_tracks_end_dict is None:
         #    self.accumulated_tracks_end_dict = {}
@@ -154,14 +154,14 @@ class PointTracker(nn.Module):
 
      
 
-        count1, count2 = 0,0
+        counter_extended, counter_created = 0,0
         for tr in range(tracks.shape[2]):
             #print("pairwise_norm", pairwise_norm[new_to_acumulated[tr],tr])
             if pairwise_norm[new_to_acumulated[tr],tr] < matching_threshold:
-                count1 +=1
+                counter_extended +=1
                 out_tracks[:,-start_of_new_track:,new_to_acumulated[tr],:] = tracks[:, :, tr, :]
             else:
-                count2 +=1
+                counter_created +=1
                 p3d = (0, 0, 0, 1, 0, 0, 0, 0)
                 out_tracks = torch.nn.functional.pad(out_tracks, p3d, "constant", 0)
                 out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, tr, :]
@@ -185,7 +185,7 @@ class PointTracker(nn.Module):
         #        out_tracks = torch.nn.functional.pad(out_tracks, p3d, "constant", 0)
         #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
-        print("merge_accumulated_tracks : out_tracks.shape, count1, count2", out_tracks.shape, count1, count2)
+        print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
         return out_tracks
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
         
