@@ -123,8 +123,11 @@ class OpticalFlow(nn.Module):
             # move the stored refined_flow and weight to ..._inac
             for i in ii:
                 for j in jj:
-                    self.refined_flow_inac = self.refined_flow[i][j]
-                    self.refined_weight_inac = self.refined_weight[i][j]
+                    if i not in self.refined_flow_inac.keys():
+                        self.refined_flow_inac[i] = dict()
+                        self.refined_weight_inac[i] = dict()
+                    self.refined_flow_inac[i][j] = self.refined_flow[i][j]
+                    self.refined_weight_inac[i][j] = self.refined_weight[i][j]
         # delete the refined_flow and weight
         for i in ii:
             for j in jj:
