@@ -109,7 +109,18 @@ class PointTracker(nn.Module):
             src_frame.shape[2]//2
             center_point = (src_frame.shape[2]//2, src_frame.shape[3]//2)
             
-            to_resample = [nbr_new_keypoint//4]*4
+
+
+            to_resample = [nbr_samples//4]*4
+
+            difference_left = nbr_samples-sum(to_resample)
+            print(difference_left)
+            print(to_resample)
+
+
+            for i in range(difference_left):
+                to_resample[i%4] +=1
+            print(to_resample)
 
             for i in range(init_queries_first_frame.shape[0]):
                 if init_queries_first_frame[i][0]<=center_point[0]:
@@ -123,6 +134,11 @@ class PointTracker(nn.Module):
                     else:
                         to_resample[3] -= 1
 
+            print(to_resample)
+            for i in range(2*len(center_point)):
+                if to_resample[i%4] < 0:
+                    to_resample[(i+1)%4] += to_resample[i%4]
+                    to_resample[i%4] = 0
 
             
             Ncorners = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],:center_point[1]], max(0,to_resample[0])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
@@ -138,7 +154,7 @@ class PointTracker(nn.Module):
             Ncorners1[:,1] += center_point[1]
 
 
-            print("Nbr of points resampled : ", (nbr_new_keypoint//4)*4)
+            print("Nbr of points resampled / kept / repartition: ", (nbr_new_keypoint), init_queries_first_frame.shape[0], to_resample)
 
             #print("points kept during resampling : ",init_queries_first_frame)
             
@@ -155,6 +171,7 @@ class PointTracker(nn.Module):
             src_corners = torch.stack([src_corners], dim=0)
             #print("init_harris : src_corners.shape", src_corners.shape)
             #print("init_harris : src_corners]", src_corners)
+            #print("src_corners", src_corners.shape)
             src_points.append(src_corners)
 
             #src_points[0].shape torch.Size([1, 64, 3])
