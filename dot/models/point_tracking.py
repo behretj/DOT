@@ -64,6 +64,8 @@ class PointTracker(nn.Module):
 
 
     def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
+        if n_keypoints <= 0:
+            return torch.empty((0,2)).to('cuda')
         src_frame_tensor  = src_frame_tensor.to('cpu')
         r, g, b = src_frame_tensor[:,0,:,:], src_frame_tensor[:,1,:,:], src_frame_tensor[:,2,:,:]
         grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b # according to the human eye may not be best here
@@ -107,7 +109,7 @@ class PointTracker(nn.Module):
             src_frame.shape[2]//2
             center_point = (src_frame.shape[2]//2, src_frame.shape[3]//2)
             
-            to_resample = (nbr_samples//4, nbr_samples//4, nbr_samples//4, nbr_samples//4)
+            to_resample = [nbr_new_keypoint//4]*4
 
             for i in range(init_queries_first_frame.shape[0]):
                 if init_queries_first_frame[i][0]<=center_point[0]:
@@ -120,8 +122,6 @@ class PointTracker(nn.Module):
                         to_resample[2] -= 1
                     else:
                         to_resample[3] -= 1
-
-            print("init_harris src_frame.shape ", src_frame.shape)
 
 
             
@@ -138,8 +138,8 @@ class PointTracker(nn.Module):
             Ncorners1[:,1] += center_point[1]
 
 
+            print("Nbr of points resampled : ", (nbr_new_keypoint//4)*4)
 
-            print("Nbr of points resampled : ", nbr_new_keypoint)
             #print("points kept during resampling : ",init_queries_first_frame)
             
             # add the prior = the keypoint still visible from the last tracks
@@ -150,7 +150,7 @@ class PointTracker(nn.Module):
 
 
 
-            src_steps_tensor = torch.full((nbr_samples, 1), src_step).to('cuda')
+            src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step).to('cuda')
             src_corners = torch.cat((src_steps_tensor,queries_2d_coords), dim=1) #coordonate contain src_frame_index
             src_corners = torch.stack([src_corners], dim=0)
             #print("init_harris : src_corners.shape", src_corners.shape)
