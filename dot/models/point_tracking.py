@@ -13,7 +13,8 @@ from dot.utils.torch import sample_points, sample_mask_points, get_grid
 import matplotlib.pyplot as plt
 
 def vis_harris(Ncorners, src_frame):
-    image = src_frame.squeeze().permute(1, 2, 0).numpy()
+    Ncorners = Ncorners.cpu()
+    image = src_frame.squeeze().permute(1, 2, 0).cpu().numpy()
 
     # Create a plot
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -147,11 +148,11 @@ class PointTracker(nn.Module):
             Ncorners1[:,1] += center_point[1]
 
             Ncorners2 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,:center_point[1]], max(0,to_resample[2])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
-            Ncorners1[:,0] += center_point[0]
+            Ncorners2[:,0] += center_point[0]
 
             Ncorners3 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,center_point[1]:], max(0,to_resample[3])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
-            Ncorners1[:,0] += center_point[0]
-            Ncorners1[:,1] += center_point[1]
+            Ncorners3[:,0] += center_point[0]
+            Ncorners3[:,1] += center_point[1]
 
 
             print("Nbr of points resampled / kept / repartition: ", (nbr_new_keypoint), init_queries_first_frame.shape[0], to_resample)
@@ -163,6 +164,9 @@ class PointTracker(nn.Module):
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners1), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
+
+            vis_harris(queries_2d_coords, src_frame)
+
 
 
 
