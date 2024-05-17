@@ -11,6 +11,8 @@ from dot.utils.io import read_config
 from dot.utils.torch import sample_points, sample_mask_points, get_grid
 
 import matplotlib.pyplot as plt
+from scipy import ndimage
+import math
 
 def vis_harris(Ncorners, src_frame):
     Ncorners = Ncorners.cpu()
@@ -67,22 +69,41 @@ class PointTracker(nn.Module):
     def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
         if n_keypoints <= 0:
             return torch.empty((0,2)).to('cuda')
+        print('src_frame_tensor.shape', src_frame_tensor.shape)
+        b, c, height, width = src_frame_tensor.shape
+        h_step, w_step = height // int(1 + math.sqrt(n_keypoints)), width // int(1 + math.sqrt(n_keypoints))
+        grid_points = []
+        for y in range(h_step, height - h_step, h_step):
+            for x in range(w_step, width - w_step, w_step):
+                grid_points.append([x, y])
+        print(f'getting {n_keypoints} grids from image shape {src_frame_tensor.shape}:', len(grid_points))
+        x, y = 3, 3
+        while n_keypoints > len(grid_points):
+            grid_points.append([x, y])
+            x += w_step
+            y += h_step
+        return torch.tensor(grid_points).to('cuda')
         src_frame_tensor  = src_frame_tensor.to('cpu')
         r, g, b = src_frame_tensor[:,0,:,:], src_frame_tensor[:,1,:,:], src_frame_tensor[:,2,:,:]
         grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b # according to the human eye may not be best here
         grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
         grayscale_numpy = grayscale_tensor.numpy()
         dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+        dst_dila = cv2.dilate(dst,None)
+        dst_local_max = ndimage.maximum_filter(input=dst, size=[50, 50]) == dst_dila
+        dst_value_mask = dst_dila > 0.01 * dst_dila.max()
+        dst[~(dst_local_max & dst_value_mask)] = 0
         #get the N strongest corners indexes
         flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:]
         Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
+        print('Ncorners', Ncorners)
         return Ncorners.to('cuda')
     
     def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
                                                         **kwargs): 
 
-            N, S = 64, 64  # num_tracks, sim_tracks
+            N, S = 1024, 1024  # num_tracks, sim_tracks
             start = time.time()
             video_chunck = data["video_chunk"]
 
@@ -165,7 +186,7 @@ class PointTracker(nn.Module):
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
 
-            vis_harris(queries_2d_coords, src_frame)
+            # vis_harris(queries_2d_coords, src_frame)
 
 
 
@@ -261,7 +282,7 @@ class PointTracker(nn.Module):
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
                                         **kwargs):
 
-        N, S = 64, 64 #num_tracks, sim_tracks
+        N, S = 1024, 1024 #num_tracks, sim_tracks
         start = time.time()
         video_chunck = data["video_chunk"]
         #print("get_tracks_at_motion_boundaries_online_droid : video_chunck.shape", video_chunck.shape)
@@ -286,7 +307,7 @@ class PointTracker(nn.Module):
 
 
         lost_nbr_of_frame_not_visible = 5
-        threshold_minimum_nbr_visible_tracks_wanted = S//2
+        threshold_minimum_nbr_visible_tracks_wanted = 3 * S//4
 
 
         traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)

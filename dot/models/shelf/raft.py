@@ -17,7 +17,7 @@ class RAFT(nn.Module):
         self.update_block = BasicUpdateBlock(hidden_dim=128, patch_size=args.patch_size, refine_alpha=args.refine_alpha)
         self.refine_alpha = args.refine_alpha
         self.patch_size = args.patch_size
-        self.num_iter = args.num_iter
+        self.num_iter = 8 # args.num_iter
 
     def encode(self, frame):
         frame = frame * 2 - 1
