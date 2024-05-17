@@ -19,6 +19,8 @@ def interpolate(src_points, tgt_points, grid, version="torch3d"):
     # For each point in a regular grid, find indices of nearest visible source point
     grid = grid.view(1, H * W, 2).expand(B, -1, -1)  # B HW 2
     src_pos, src_alpha = src_points[..., :2], src_points[..., 2]
+    tgt_pos, tgt_alpha = tgt_points[..., :2], tgt_points[..., 2]
+    src_alpha = src_alpha * tgt_alpha
     if version == "torch" or (version == "torch3d" and not TORCH3D_AVAILABLE):
         if version == "torch3d":
             warnings.warn(
