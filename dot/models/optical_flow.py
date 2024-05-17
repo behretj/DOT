@@ -14,6 +14,10 @@ import random
 import numpy as np
 import cv2
 
+from dot.utils.io import create_folder, write_video, write_frame
+from dot.utils.plot import to_rgb, plot_points
+import os.path as osp
+
 def vis_gaussian_weighting(tensor1, tensor2, i, j):
     tensor1 = tensor1.squeeze(0)
     tensor2 = tensor2.squeeze(0)
@@ -212,6 +216,10 @@ class OpticalFlow(nn.Module):
                                     is_train=False,
                                     slam_refinement=True)
             
+            # if random.random() < 0.07:
+            #     print(f'optical_flow: visualizing flow {i}-{j}//////////////')
+            #     write_frame(to_rgb(flow, "flow")[0], osp.join('/home/wangwen/DOT-SLAM/flow_visualize', f"pred_flow_{i}_{j}.png"))
+
             # if [int(i), int(j)] in [[15, 19], [17, 15], [21, 15], [26, 24], [79, 80], [94, 96], [100, 104], [114, 117], [122, 118], [126, 122], [127, 128], [135, 133]]:
             # # if random.random() < 0.03:
             #     scale_x, scale_y = 640/128, 480/128
@@ -257,7 +265,7 @@ class OpticalFlow(nn.Module):
         return target, weight
     
     def get_flow_magnitude(self, track, video, coord0):
-        # return
+        return
         print('************* get_flow_magnitude *************')
         pairs = [(3, 6), (3, 10), (3, 14), (6, 3), (6, 10), (6, 14), (6, 18), (10, 3), (10, 6), (10, 14), (10, 18), (10, 21), (14, 3), (14, 6), (14, 10), (14, 18), (14, 21), (14, 24), (18, 6), (18, 10), (18, 14), (18, 21), (18, 24), (18, 27), (21, 10), (21, 14), (21, 18), (21, 24), (21, 27), (21, 30), (24, 14), (24, 18), (24, 21), (24, 27), (24, 30), (24, 34), (27, 18), (27, 21)]
         for (i, j) in pairs:
@@ -292,7 +300,7 @@ class OpticalFlow(nn.Module):
             resized_flow = cv2.resize(flow[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
             # print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            print(f'flow magnitude (128*128 -> 480*640): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
+            print(f'flow magnitude (128*128 -> 48*64): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
 
         for (i, j) in pairs:
             # print(f'get_flow_magnitude: optical flow: getting refined flow between frame {i} to {j}')
@@ -325,7 +333,7 @@ class OpticalFlow(nn.Module):
             resized_flow = cv2.resize(flow_up[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
             # print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            print(f'flow magnitude (512*512 -> 480*640): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
+            print(f'flow magnitude (512*512 -> 48*64): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
             
         print('************* all computed *************')
         assert False
