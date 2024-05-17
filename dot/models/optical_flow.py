@@ -14,7 +14,7 @@ def vis_gaussian_weighting(tensor1, tensor2, i, j):
     tensor1 = tensor1.squeeze(0)
     tensor2 = tensor2.squeeze(0)
 
-    channel_1 = tensor1[:, :, 0]
+    channel_1 = tensor1
     channel_2 = tensor2[:, :, 0]
 
     channel_1_cpu = channel_1.cpu().numpy()
@@ -69,7 +69,8 @@ def apply_gaussian_weights(alpha, cotracker_predictions, sigma):
     
     weights = torch.exp(-distances_squared / (2 * sigma**2))
     weights *= cotracker_predictions[:,:,:,2]
-    weighted_alpha = torch.sum(weights, dim=0) * alpha
+    # TODO: remove the alpha for now
+    weighted_alpha = torch.sum(weights, dim=0) # * alpha
     weighted_alpha /= torch.max(weighted_alpha)
 
     return weighted_alpha.unsqueeze(-1).repeat(1, 1, 1, 2)
@@ -210,7 +211,7 @@ class OpticalFlow(nn.Module):
             gaussian_src_points = src_points.clone().detach()
             gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
             gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
-            weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
+            weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.03)
             self.refined_flow[i][j] = flow[0]
             self.refined_weight[i][j] = weighted_alpha[0]
             target.append(flow[0])
