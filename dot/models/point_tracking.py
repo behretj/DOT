@@ -78,11 +78,26 @@ class PointTracker(nn.Module):
         Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
         return Ncorners.to('cuda')
     
-    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
+
+
+    def dst_harris_computation(self, src_frame_tensor):
+        src_frame_tensor  = src_frame_tensor.to('cpu')
+        r, g, b = src_frame_tensor[:,0,:,:], src_frame_tensor[:,1,:,:], src_frame_tensor[:,2,:,:]
+        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b # according to the human eye may not be best here
+        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
+        grayscale_numpy = grayscale_tensor.numpy()
+        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+        return dst
+        
+
+
+
+    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2000,
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
+                                                        nbr_grid_cell_width=20, nbr_grid_cell_height=20,
                                                         **kwargs): 
 
-            N, S = 64, 64  # num_tracks, sim_tracks
+           
             start = time.time()
             video_chunck = data["video_chunk"]
 
@@ -99,71 +114,62 @@ class PointTracker(nn.Module):
 
             src_points = []
             src_step = 0
-            nbr_samples = S
             src_frame = video_chunck[:, src_step]
 
             #print("init_harris : init_queries_first_frame.shape", init_queries_first_frame.shape)
 
             #add the new keypoint to replace the keypoints we lost
-            nbr_new_keypoint = nbr_samples-init_queries_first_frame.shape[0]
-
-            src_frame.shape[2]//2
-            center_point = (src_frame.shape[2]//2, src_frame.shape[3]//2)
-            
 
 
-            to_resample = [nbr_samples//4]*4
-
-            difference_left = nbr_samples-sum(to_resample)
-            print(difference_left)
-            print(to_resample)
 
 
-            for i in range(difference_left):
-                to_resample[i%4] +=1
-            print(to_resample)
 
+            nbr_per_cell = sim_tracks//(nbr_grid_cell_width*nbr_grid_cell_height)
+
+
+            cell_width = src_frame.shape[2]//nbr_grid_cell_width
+            cell_height = src_frame.shape[3]//nbr_grid_cell_height
+
+
+            nbr_new_keypoints_per_cell = [[nbr_per_cell]*nbr_grid_cell_width]*nbr_grid_cell_height #sim_tracks-init_queries_first_frame.shape[0]
+
+
+
+            print("init_queries_first_frame.shape", init_queries_first_frame.shape)
             for i in range(init_queries_first_frame.shape[0]):
-                if init_queries_first_frame[i][0]<=center_point[0]:
-                    if init_queries_first_frame[i][1]<=center_point[1]:
-                        to_resample[0] -= 1
-                    else:
-                        to_resample[1] -= 1
-                else: 
-                    if init_queries_first_frame[i][1]<=center_point[1]:
-                        to_resample[2] -= 1
-                    else:
-                        to_resample[3] -= 1
+                cell_w_index = init_queries_first_frame[i][0] // cell_width
+                cell_h_index = init_queries_first_frame[i][1] // cell_height
+                nbr_new_keypoints_per_cell[cell_w_index][cell_h_index] -= 1
 
-            print(to_resample)
-            for i in range(2*len(center_point)):
-                if to_resample[i%4] < 0:
-                    to_resample[(i+1)%4] += to_resample[i%4]
-                    to_resample[i%4] = 0
+
+            harris_dist = self.dst_harris_computation(src_frame)
+
+
+
+
+            nbr_point_resampled = 0
+
+            queries_2d_coords = init_queries_first_frame
+            for cell_w_index in range(nbr_grid_cell_width):
+                for cell_h_index in range(nbr_grid_cell_height):
+                    local_dist = harris_dist[cell_w_index*cell_width:(cell_w_index+1)*cell_width,cell_h_index*cell_height:(cell_h_index+1)*cell_height]
+                    nbr_keypoint_to_resample_in_cell = max(0, nbr_new_keypoints_per_cell[cell_w_index][cell_h_index])
+                    nbr_point_resampled += nbr_keypoint_to_resample_in_cell
+                    #get the N strongest corners indexes
+                    flattened_dst_strongest_corner_indexes = np.argpartition(local_dist.flatten(), -nbr_keypoint_to_resample_in_cell)[-nbr_keypoint_to_resample_in_cell:]
+                    Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), local_dist.shape), dim=1)
+                    Ncorners[:,0] += cell_w_index*cell_width
+                    Ncorners[:,1] += cell_h_index*cell_height
+                    queries_2d_coords = torch.cat((queries_2d_coords, Ncorners.to('cuda')), dim=0)
+                    
 
             
-            Ncorners = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],:center_point[1]], max(0,to_resample[0])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
-            
-            Ncorners1 = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],center_point[1]:], max(0,to_resample[1])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
-            Ncorners1[:,1] += center_point[1]
 
-            Ncorners2 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,:center_point[1]], max(0,to_resample[2])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
-            Ncorners2[:,0] += center_point[0]
-
-            Ncorners3 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,center_point[1]:], max(0,to_resample[3])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
-            Ncorners3[:,0] += center_point[0]
-            Ncorners3[:,1] += center_point[1]
-
-
-            print("Nbr of points resampled / kept / repartition: ", (nbr_new_keypoint), init_queries_first_frame.shape[0], to_resample)
+            print("Nbr of points resampled / kept: ", nbr_point_resampled, init_queries_first_frame.shape[0])
 
             #print("points kept during resampling : ",init_queries_first_frame)
             
             # add the prior = the keypoint still visible from the last tracks
-            queries_2d_coords = torch.cat((init_queries_first_frame, Ncorners), dim=0)
-            queries_2d_coords = torch.cat((queries_2d_coords, Ncorners1), dim=0)
-            queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
-            queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
 
             vis_harris(queries_2d_coords, src_frame)
 
