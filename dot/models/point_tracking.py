@@ -103,7 +103,7 @@ class PointTracker(nn.Module):
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
                                                         **kwargs): 
 
-            N, S = 1024, 1024  # num_tracks, sim_tracks
+            N, S = 1600, 1600  # num_tracks, sim_tracks
             start = time.time()
             video_chunck = data["video_chunk"]
 
@@ -282,7 +282,7 @@ class PointTracker(nn.Module):
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
                                         **kwargs):
 
-        N, S = 1024, 1024 #num_tracks, sim_tracks
+        N, S = 1600, 1600 #num_tracks, sim_tracks
         start = time.time()
         video_chunck = data["video_chunk"]
         #print("get_tracks_at_motion_boundaries_online_droid : video_chunck.shape", video_chunck.shape)
@@ -334,6 +334,8 @@ class PointTracker(nn.Module):
             tracks = tracks.flip(dims=[1])
         end = time.time()
         print('runtime for tracking:', end - start)
+
+        torch.cuda.empty_cache()
 
         return {"tracks": tracks}
 

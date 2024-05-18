@@ -14,6 +14,10 @@ import random
 import numpy as np
 import cv2
 
+from dot.utils.io import create_folder, write_video, write_frame
+from dot.utils.plot import to_rgb, plot_points
+import os.path as osp
+
 def vis_gaussian_weighting(tensor1, tensor2, i, j):
     tensor1 = tensor1.squeeze(0)
     tensor2 = tensor2.squeeze(0)
@@ -94,8 +98,8 @@ class OpticalFlow(nn.Module):
         self.register_buffer("coarse_grid", get_grid(coarse_height, coarse_width))
         self.refined_flow = dict() # aka. self.target, refined_flow[i][j] (i, j are index for consecutive frames)
         self.refined_weight = dict() # aka. self.weight
-        # self.refined_flow_inac = dict()
-        # self.refined_weight_inac = dict()
+        self.refined_flow_inac = dict()
+        self.refined_weight_inac = dict()
         self.export_epe = False
 
     def forward(self, data, mode, **kwargs):
@@ -118,34 +122,36 @@ class OpticalFlow(nn.Module):
         
     def reset_inac(self, ii, jj):
         # remove the ii&jj from inac
-        # for idx in len(ii):
-        #     i = ii[idx]
-        #     j = jj[idx]
-        #     self.refined_flow_inac[i].pop(j)
-        #     self.refined_weight_inac[i].pop(j)
+        for idx in range(len(ii)):
+            i = ii[idx]
+            j = jj[idx]
+            self.refined_flow_inac[i].pop(j)
+            self.refined_weight_inac[i].pop(j)
+        torch.cuda.empty_cache()
         return
     
     def rm_flows(self, ii, jj, store=False):
-        # print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
-        # # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
-        # if store:
-        #     # move the stored refined_flow and weight to ..._inac
-        #     for idx in range(len(ii)):
-        #         i = ii[idx]
-        #         j = jj[idx]
-        #         if i not in self.refined_flow_inac.keys():
-        #             self.refined_flow_inac[i] = dict()
-        #             self.refined_weight_inac[i] = dict()
-        #         # print('keys for {i}:', self.refined_flow[i].keys())
-        #         # self.refined_flow_inac[i][j] = self.refined_flow[i][j]
-        #         # self.refined_weight_inac[i][j] = self.refined_weight[i][j]
-        # # delete the refined_flow and weight
-        # if store:
-        #     for idx in range(len(ii)):
-        #         i = ii[idx]
-        #         j = jj[idx]
-        #         self.refined_flow[i].pop(j)
-        #         self.refined_weight[i].pop(j)
+        print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
+        # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
+        if store:
+            # move the stored refined_flow and weight to ..._inac
+            for idx in range(len(ii)):
+                i = ii[idx]
+                j = jj[idx]
+                if i not in self.refined_flow_inac.keys():
+                    self.refined_flow_inac[i] = dict()
+                    self.refined_weight_inac[i] = dict()
+                # print('keys for {i}:', self.refined_flow[i].keys())
+                self.refined_flow_inac[i][j] = self.refined_flow[i][j].to('cpu')
+                self.refined_weight_inac[i][j] = self.refined_weight[i][j].to('cpu')
+        # delete the refined_flow and weight
+        if store:
+            for idx in range(len(ii)):
+                i = ii[idx]
+                j = jj[idx]
+                self.refined_flow[i].pop(j)
+                self.refined_weight[i].pop(j)
+        torch.cuda.empty_cache()
         return
     
     def get_flow_between_frames(self, track, video, ii, jj):
@@ -169,7 +175,7 @@ class OpticalFlow(nn.Module):
         #     video = video[None] # add dimension (batch)
 
         l = len(ii)
-        target, weight = [], []
+        # target, weight = [], []
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
@@ -178,13 +184,13 @@ class OpticalFlow(nn.Module):
                 self.refined_weight[i] = dict()
             else:
                 if i in self.refined_flow.keys() and j in self.refined_flow[i].keys():
-                    target.append(self.refined_flow[i][j])
-                    weight.append(self.refined_weight[i][j])
+                    # target.append(self.refined_flow[i][j])
+                    # weight.append(self.refined_weight[i][j])
                     continue
-                # elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
-                #     target.append(self.refined_flow[i][j])
-                #     weight.append(self.refined_weight[i][j])
-                #     continue
+                elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
+                    # target.append(self.refined_flow[i][j])
+                    # weight.append(self.refined_weight[i][j])
+                    continue
                 
             print(f'optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
@@ -212,6 +218,10 @@ class OpticalFlow(nn.Module):
                                     is_train=False,
                                     slam_refinement=True)
             
+            # if random.random() < 0.07:
+            #     print(f'optical_flow: visualizing flow {i}-{j}//////////////')
+            #     write_frame(to_rgb(flow, "flow")[0], osp.join('/home/wangwen/DOT-SLAM/flow_visualize', f"pred_flow_{i}_{j}.png"))
+
             # if [int(i), int(j)] in [[15, 19], [17, 15], [21, 15], [26, 24], [79, 80], [94, 96], [100, 104], [114, 117], [122, 118], [126, 122], [127, 128], [135, 133]]:
             # # if random.random() < 0.03:
             #     scale_x, scale_y = 640/128, 480/128
@@ -243,21 +253,22 @@ class OpticalFlow(nn.Module):
             gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
             gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
             weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
-            self.refined_flow[i][j] = flow[0]
-            self.refined_weight[i][j] = weighted_alpha[0]
-            target.append(flow[0])
-            weight.append(weighted_alpha[0])
-        target = torch.stack(target, dim=0)[None]
-        weight = torch.stack(weight, dim=0)[None]
+            self.refined_flow[i][j] = flow[0].to('cpu')
+            self.refined_weight[i][j] = weighted_alpha[0].to('cpu')
+            # target.append(flow[0])
+            # weight.append(weighted_alpha[0])
+        # target = torch.stack(target, dim=0)[None]
+        # weight = torch.stack(weight, dim=0)[None]
         # if len(track[0]) > 80:
         #     self.get_flow_magnitude(track=track, video=video)
         # if (not self.export_epe) and len(track[0]) > 140:
         #     self.save_flows_for_epe(track=track, video=video)
         #     self.export_epe = True
-        return target, weight
+        torch.cuda.empty_cache()
+        # return target, weight
     
     def get_flow_magnitude(self, track, video, coord0):
-        # return
+        return
         print('************* get_flow_magnitude *************')
         pairs = [(3, 6), (3, 10), (3, 14), (6, 3), (6, 10), (6, 14), (6, 18), (10, 3), (10, 6), (10, 14), (10, 18), (10, 21), (14, 3), (14, 6), (14, 10), (14, 18), (14, 21), (14, 24), (18, 6), (18, 10), (18, 14), (18, 21), (18, 24), (18, 27), (21, 10), (21, 14), (21, 18), (21, 24), (21, 27), (21, 30), (24, 14), (24, 18), (24, 21), (24, 27), (24, 30), (24, 34), (27, 18), (27, 21)]
         for (i, j) in pairs:
@@ -292,7 +303,7 @@ class OpticalFlow(nn.Module):
             resized_flow = cv2.resize(flow[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
             # print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            print(f'flow magnitude (128*128 -> 480*640): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
+            print(f'flow magnitude (128*128 -> 48*64): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
 
         for (i, j) in pairs:
             # print(f'get_flow_magnitude: optical flow: getting refined flow between frame {i} to {j}')
@@ -325,7 +336,7 @@ class OpticalFlow(nn.Module):
             resized_flow = cv2.resize(flow_up[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
             # print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            print(f'flow magnitude (512*512 -> 480*640): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
+            print(f'flow magnitude (512*512 -> 48*64): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
             
         print('************* all computed *************')
         assert False
