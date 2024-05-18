@@ -126,11 +126,6 @@ class PointTracker(nn.Module):
 
 
 
-            print("sim_tracks, nbr_per_cell, difference, nbr_grid_cell_width, nbr_grid_cell_height", sim_tracks, nbr_per_cell, difference, nbr_grid_cell_width, nbr_grid_cell_height)
-
-
-
-
             cell_width = src_frame.shape[2]//nbr_grid_cell_width
             cell_height = src_frame.shape[3]//nbr_grid_cell_height
 
@@ -149,7 +144,7 @@ class PointTracker(nn.Module):
 
             nbr_point_resampled = 0
 
-            queries_2d_coords = init_queries_first_frame
+            queries_2d_coords = init_queries_first_frame.to('cpu')
             for cell_w_index in range(nbr_grid_cell_width):
                 for cell_h_index in range(nbr_grid_cell_height):
                     local_dist = harris_dist[cell_w_index*cell_width:(cell_w_index+1)*cell_width,cell_h_index*cell_height:(cell_h_index+1)*cell_height]
@@ -164,7 +159,7 @@ class PointTracker(nn.Module):
                     Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), local_dist.shape), dim=1)
                     Ncorners[:,0] += cell_w_index*cell_width
                     Ncorners[:,1] += cell_h_index*cell_height
-                    queries_2d_coords = torch.cat((queries_2d_coords, Ncorners.to('cuda')), dim=0)
+                    queries_2d_coords = torch.cat((queries_2d_coords, Ncorners), dim=0)
 
 
             
@@ -177,7 +172,7 @@ class PointTracker(nn.Module):
 
             vis_harris(queries_2d_coords, src_frame)
 
-            src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step).to('cuda')
+            src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
             src_corners = torch.cat((src_steps_tensor,queries_2d_coords), dim=1) #coordonate contain src_frame_index
             src_corners = torch.stack([src_corners], dim=0)
             #print("init_harris : src_corners.shape", src_corners.shape)
@@ -261,7 +256,7 @@ class PointTracker(nn.Module):
         #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
         print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
-        return out_tracks
+        return out_tracks.to('cuda').to_sparse()
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
 
 
@@ -269,7 +264,7 @@ class PointTracker(nn.Module):
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
                                         **kwargs):
 
-        N, S = 64, 64 #num_tracks, sim_tracks
+        N, S = num_tracks, sim_tracks
         start = time.time()
         video_chunck = data["video_chunk"]
         #print("get_tracks_at_motion_boundaries_online_droid : video_chunck.shape", video_chunck.shape)
@@ -294,7 +289,7 @@ class PointTracker(nn.Module):
 
 
         lost_nbr_of_frame_not_visible = 5
-        threshold_minimum_nbr_visible_tracks_wanted = S - (S//8)
+        threshold_minimum_nbr_visible_tracks_wanted = (3*S)//4
 
 
         traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
@@ -307,14 +302,13 @@ class PointTracker(nn.Module):
         tracks_not_lost_vis, _ = torch.max(vis_lost_window, 0) #dim 0 is the time(frames)
 
         tracks = self.merge_accumulated_tracks(tracks)
+        print("torch.sum(tracks_not_lost_vis) will be resampling if", torch.sum(tracks_not_lost_vis))
         if torch.sum(tracks_not_lost_vis)<threshold_minimum_nbr_visible_tracks_wanted:
             self.accumulated_tracks = tracks
             self.accumulated_tracks_end_dict = None
             tracks_not_lost_mask = tracks_not_lost_vis==1
             queries_kept = traj[0,-1, tracks_not_lost_mask,:]
             self.init_harris(data, num_tracks=8192, sim_tracks=2048, init_queries_first_frame=queries_kept)
-
-
 
 
         if flip:
