@@ -193,6 +193,8 @@ class PointTracker(nn.Module):
 
     def merge_accumulated_tracks(self, tracks, track_overlap=4, matching_threshold = 15):
 
+        tracks = tracks.to('cpu')
+
         if self.accumulated_tracks is None:
             return tracks
         
@@ -256,7 +258,7 @@ class PointTracker(nn.Module):
         #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
         print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
-        return out_tracks
+        return out_tracks.to('cpu')
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
 
 
