@@ -256,7 +256,7 @@ class PointTracker(nn.Module):
         #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
         print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
-        return out_tracks.to('cuda').to_sparse()
+        return out_tracks
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
 
 
