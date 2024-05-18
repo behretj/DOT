@@ -98,8 +98,8 @@ class OpticalFlow(nn.Module):
         self.register_buffer("coarse_grid", get_grid(coarse_height, coarse_width))
         self.refined_flow = dict() # aka. self.target, refined_flow[i][j] (i, j are index for consecutive frames)
         self.refined_weight = dict() # aka. self.weight
-        # self.refined_flow_inac = dict()
-        # self.refined_weight_inac = dict()
+        self.refined_flow_inac = dict()
+        self.refined_weight_inac = dict()
         self.export_epe = False
 
     def forward(self, data, mode, **kwargs):
@@ -122,34 +122,36 @@ class OpticalFlow(nn.Module):
         
     def reset_inac(self, ii, jj):
         # remove the ii&jj from inac
-        # for idx in len(ii):
-        #     i = ii[idx]
-        #     j = jj[idx]
-        #     self.refined_flow_inac[i].pop(j)
-        #     self.refined_weight_inac[i].pop(j)
+        for idx in range(len(ii)):
+            i = ii[idx]
+            j = jj[idx]
+            self.refined_flow_inac[i].pop(j)
+            self.refined_weight_inac[i].pop(j)
+        torch.cuda.empty_cache()
         return
     
     def rm_flows(self, ii, jj, store=False):
-        # print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
-        # # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
-        # if store:
-        #     # move the stored refined_flow and weight to ..._inac
-        #     for idx in range(len(ii)):
-        #         i = ii[idx]
-        #         j = jj[idx]
-        #         if i not in self.refined_flow_inac.keys():
-        #             self.refined_flow_inac[i] = dict()
-        #             self.refined_weight_inac[i] = dict()
-        #         # print('keys for {i}:', self.refined_flow[i].keys())
-        #         # self.refined_flow_inac[i][j] = self.refined_flow[i][j]
-        #         # self.refined_weight_inac[i][j] = self.refined_weight[i][j]
-        # # delete the refined_flow and weight
-        # if store:
-        #     for idx in range(len(ii)):
-        #         i = ii[idx]
-        #         j = jj[idx]
-        #         self.refined_flow[i].pop(j)
-        #         self.refined_weight[i].pop(j)
+        print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
+        # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
+        if store:
+            # move the stored refined_flow and weight to ..._inac
+            for idx in range(len(ii)):
+                i = ii[idx]
+                j = jj[idx]
+                if i not in self.refined_flow_inac.keys():
+                    self.refined_flow_inac[i] = dict()
+                    self.refined_weight_inac[i] = dict()
+                # print('keys for {i}:', self.refined_flow[i].keys())
+                self.refined_flow_inac[i][j] = self.refined_flow[i][j].to('cpu')
+                self.refined_weight_inac[i][j] = self.refined_weight[i][j].to('cpu')
+        # delete the refined_flow and weight
+        if store:
+            for idx in range(len(ii)):
+                i = ii[idx]
+                j = jj[idx]
+                self.refined_flow[i].pop(j)
+                self.refined_weight[i].pop(j)
+        torch.cuda.empty_cache()
         return
     
     def get_flow_between_frames(self, track, video, ii, jj):
@@ -173,7 +175,7 @@ class OpticalFlow(nn.Module):
         #     video = video[None] # add dimension (batch)
 
         l = len(ii)
-        target, weight = [], []
+        # target, weight = [], []
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
@@ -182,13 +184,13 @@ class OpticalFlow(nn.Module):
                 self.refined_weight[i] = dict()
             else:
                 if i in self.refined_flow.keys() and j in self.refined_flow[i].keys():
-                    target.append(self.refined_flow[i][j])
-                    weight.append(self.refined_weight[i][j])
+                    # target.append(self.refined_flow[i][j])
+                    # weight.append(self.refined_weight[i][j])
                     continue
-                # elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
-                #     target.append(self.refined_flow[i][j])
-                #     weight.append(self.refined_weight[i][j])
-                #     continue
+                elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
+                    # target.append(self.refined_flow[i][j])
+                    # weight.append(self.refined_weight[i][j])
+                    continue
                 
             print(f'optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
@@ -251,18 +253,19 @@ class OpticalFlow(nn.Module):
             gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
             gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
             weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
-            self.refined_flow[i][j] = flow[0]
-            self.refined_weight[i][j] = weighted_alpha[0]
-            target.append(flow[0])
-            weight.append(weighted_alpha[0])
-        target = torch.stack(target, dim=0)[None]
-        weight = torch.stack(weight, dim=0)[None]
+            self.refined_flow[i][j] = flow[0].to('cpu')
+            self.refined_weight[i][j] = weighted_alpha[0].to('cpu')
+            # target.append(flow[0])
+            # weight.append(weighted_alpha[0])
+        # target = torch.stack(target, dim=0)[None]
+        # weight = torch.stack(weight, dim=0)[None]
         # if len(track[0]) > 80:
         #     self.get_flow_magnitude(track=track, video=video)
         # if (not self.export_epe) and len(track[0]) > 140:
         #     self.save_flows_for_epe(track=track, video=video)
         #     self.export_epe = True
-        return target, weight
+        torch.cuda.empty_cache()
+        # return target, weight
     
     def get_flow_magnitude(self, track, video, coord0):
         return
@@ -438,7 +441,6 @@ class OpticalFlow(nn.Module):
 
     def get_tracks_for_queries(self, data, **kwargs):
         raise NotImplementedError
-
 
 
 
