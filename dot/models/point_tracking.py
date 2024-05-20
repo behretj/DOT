@@ -14,6 +14,14 @@ import matplotlib.pyplot as plt
 from scipy import ndimage
 import math
 
+
+
+
+
+
+
+
+
 def vis_harris(Ncorners, src_frame):
     Ncorners = Ncorners.cpu()
     image = src_frame.squeeze().permute(1, 2, 0).cpu().numpy()
@@ -35,6 +43,13 @@ class PointTracker(nn.Module):
     def __init__(self,  height, width, tracker_config, tracker_path, estimator_config, estimator_path, isOnline=False):
         super().__init__()
         model_args = read_config(tracker_config)
+
+        sampling_inititization_functions  = {
+            'harris' : self.init_harris,
+            'grid' : self.init_grid
+            }
+        self.init_sampl_func = sampling_inititization_functions['harris']
+
         if isOnline:
             self.OnlineCoTracker_initialized = False
             self.modelOnline = CoTracker2Online(model_args)
@@ -106,21 +121,6 @@ class PointTracker(nn.Module):
             x += w_step
             y += h_step
         return torch.tensor(grid_points).to('cuda')
-        src_frame_tensor  = src_frame_tensor.to('cpu')
-        r, g, b = src_frame_tensor[:,0,:,:], src_frame_tensor[:,1,:,:], src_frame_tensor[:,2,:,:]
-        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b # according to the human eye may not be best here
-        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
-        grayscale_numpy = grayscale_tensor.numpy()
-        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
-        dst_dila = cv2.dilate(dst,None)
-        dst_local_max = ndimage.maximum_filter(input=dst, size=[50, 50]) == dst_dila
-        dst_value_mask = dst_dila > 0.01 * dst_dila.max()
-        dst[~(dst_local_max & dst_value_mask)] = 0
-        #get the N strongest corners indexes
-        flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:]
-        Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
-        #print('Ncorners', Ncorners)
-        return Ncorners.to('cuda')
 
     def init_harris(self, data, num_tracks_max=8192, sim_tracks=2000,
                     sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
@@ -143,8 +143,7 @@ class PointTracker(nn.Module):
         src_step = 0
         src_frame = video_chunck[:, src_step]
 
-        # print("init_harris : init_queries_first_frame.shape", init_queries_first_frame.shape)
-
+       
         # add the new keypoint to replace the keypoints we lost
 
         nbr_per_cell = sim_tracks // (nbr_grid_cell_width * nbr_grid_cell_height)
@@ -202,16 +201,12 @@ class PointTracker(nn.Module):
         src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
         src_corners = torch.cat((src_steps_tensor, queries_2d_coords), dim=1)  # coordonate contain src_frame_index
         src_corners = torch.stack([src_corners], dim=0)
-        # print("init_harris : src_corners.shape", src_corners.shape)
-        # print("init_harris : src_corners]", src_corners)
-        # print("src_corners", src_corners.shape)
         src_points.append(src_corners)
 
         # src_points[0].shape torch.Size([1, 64, 3])
         src_points = torch.cat(src_points, dim=1)
 
         # src_points = torch.Size([1, 64, 3]) #3 = (frame=0, height_y width_x)
-        # print("init_harris : src_points.shape", src_points.shape)
 
         _, _ = self.modelOnline(video_chunck.to('cuda'), src_points.to('cuda'), is_first_step=True)
         self.OnlineCoTracker_initialized = True
@@ -219,11 +214,11 @@ class PointTracker(nn.Module):
 
 
 
-    def init_grid(self, data, num_tracks_max=8192, sim_tracks=2048,
+    def init_grid(self, data, num_tracks_max=1600, sim_tracks=1600,
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
                                                         **kwargs):
 
-            N, S = 1600, 1600  # num_tracks, sim_tracks
+            N, S = num_tracks_max, sim_tracks  # num_tracks, sim_tracks
             start = time.time()
             video_chunck = data["video_chunk"]
 
@@ -243,8 +238,7 @@ class PointTracker(nn.Module):
             nbr_samples = S
             src_frame = video_chunck[:, src_step]
 
-            #print("init_harris : init_queries_first_frame.shape", init_queries_first_frame.shape)
-
+           
             #add the new keypoint to replace the keypoints we lost
             nbr_new_keypoint = nbr_samples-init_queries_first_frame.shape[0]
 
@@ -283,15 +277,15 @@ class PointTracker(nn.Module):
                     to_resample[i%4] = 0
 
             
-            Ncorners = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],:center_point[1]], max(0,to_resample[0])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners = self.grid_n_corner_detection(src_frame[:,:,:center_point[0],:center_point[1]], max(0,to_resample[0])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
             
-            Ncorners1 = self.harris_n_corner_detection(src_frame[:,:,:center_point[0],center_point[1]:], max(0,to_resample[1])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners1 = self.grid_n_corner_detection(src_frame[:,:,:center_point[0],center_point[1]:], max(0,to_resample[1])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
             Ncorners1[:,1] += center_point[1]
 
-            Ncorners2 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,:center_point[1]], max(0,to_resample[2])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners2 = self.grid_n_corner_detection(src_frame[:,:,center_point[0]:,:center_point[1]], max(0,to_resample[2])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
             Ncorners2[:,0] += center_point[0]
 
-            Ncorners3 = self.harris_n_corner_detection(src_frame[:,:,center_point[0]:,center_point[1]:], max(0,to_resample[3])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
+            Ncorners3 = self.grid_n_corner_detection(src_frame[:,:,center_point[0]:,center_point[1]:], max(0,to_resample[3])) #TODO sample intelligently uniformly in each cell of a 9x9 grid
             Ncorners3[:,0] += center_point[0]
             Ncorners3[:,1] += center_point[1]
 
@@ -311,16 +305,12 @@ class PointTracker(nn.Module):
             src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
             src_corners = torch.cat((src_steps_tensor,queries_2d_coords), dim=1) #coordonate contain src_frame_index
             src_corners = torch.stack([src_corners], dim=0)
-            #print("init_harris : src_corners.shape", src_corners.shape)
-            #print("init_harris : src_corners]", src_corners)
-            #print("src_corners", src_corners.shape)
             src_points.append(src_corners)
 
             #src_points[0].shape torch.Size([1, 64, 3])
             src_points = torch.cat(src_points, dim=1)
 
             #src_points = torch.Size([1, 64, 3]) #3 = (frame=0, height_y width_x)
-            #print("init_harris : src_points.shape", src_points.shape)
 
 
             _, _ = self.modelOnline(video_chunck.to('cuda'), src_points.to('cuda'), is_first_step=True)
@@ -421,7 +411,7 @@ class PointTracker(nn.Module):
 
         if not self.OnlineCoTracker_initialized:
             self.accumulated_tracks = None
-            self.init_harris(data, num_tracks=num_tracks, sim_tracks=sim_tracks)
+            self.init_sampl_func(data, num_tracks=num_tracks, sim_tracks=sim_tracks)
             return {"tracks": tracks}
 
 
@@ -444,8 +434,7 @@ class PointTracker(nn.Module):
             self.accumulated_tracks_end_dict = None
             tracks_not_lost_mask = tracks_not_lost_vis==1
             queries_kept = traj[0,-1, tracks_not_lost_mask,:]
-            self.init_harris(data, num_tracks=num_tracks, sim_tracks=sim_tracks, init_queries_first_frame=queries_kept)
-
+            self.init_sampl_func(data, num_tracks=num_tracks, sim_tracks=sim_tracks, init_queries_first_frame=queries_kept)
 
         if flip:
             tracks = tracks.flip(dims=[1])
