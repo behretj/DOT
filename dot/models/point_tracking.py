@@ -80,20 +80,20 @@ class PointTracker(nn.Module):
         else:
             raise ValueError(f"Unknown mode {mode}")
 
-    def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
-        if n_keypoints <= 0:
-            return torch.empty((0, 2)).to('cuda')
-        src_frame_tensor = src_frame_tensor.to('cpu')
-        r, g, b = src_frame_tensor[:, 0, :, :], src_frame_tensor[:, 1, :, :], src_frame_tensor[:, 2, :, :]
-        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b  # according to the human eye may not be best here
-        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
-        grayscale_numpy = grayscale_tensor.numpy()
-        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
-        # get the N strongest corners indexes
-        flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:]
-        Ncorners = torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape),
-                               dim=1)
-        return Ncorners.to('cuda')
+    #def harris_n_corner_detection(self, src_frame_tensor, n_keypoints): 
+    #    if n_keypoints <= 0:
+    #        return torch.empty((0, 2)).to('cuda')
+    #    src_frame_tensor = src_frame_tensor.to('cpu')
+    #    r, g, b = src_frame_tensor[:, 0, :, :], src_frame_tensor[:, 1, :, :], src_frame_tensor[:, 2, :, :]
+    #    grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b  # according to the human eye may not be best here
+    #    grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
+    #    grayscale_numpy = grayscale_tensor.numpy()
+    #    dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+    #    # get the N strongest corners indexes
+    #    flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:]
+    #    Ncorners = torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape),
+    #                           dim=1)
+    #    return Ncorners.to('cuda')
 
     def dst_harris_computation(self, src_frame_tensor):
         src_frame_tensor = src_frame_tensor.to('cpu')
@@ -106,7 +106,7 @@ class PointTracker(nn.Module):
 
     def grid_n_corner_detection(self, src_frame_tensor, n_keypoints):
         if n_keypoints <= 0:
-            return torch.empty((0,2)).to('cuda')
+            return torch.empty((0,2))
         #print('src_frame_tensor.shape', src_frame_tensor.shape)
         b, c, height, width = src_frame_tensor.shape
         h_step, w_step = height // int(1 + math.sqrt(n_keypoints)), width // int(1 + math.sqrt(n_keypoints))
@@ -120,7 +120,7 @@ class PointTracker(nn.Module):
             grid_points.append([x, y])
             x += w_step
             y += h_step
-        return torch.tensor(grid_points).to('cuda')
+        return torch.tensor(grid_points)
 
     def init_harris(self, data, num_tracks_max=8192, sim_tracks=2000,
                     sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
@@ -295,7 +295,7 @@ class PointTracker(nn.Module):
             #print("points kept during resampling : ",init_queries_first_frame)
             
             # add the prior = the keypoint still visible from the last tracks
-            queries_2d_coords = torch.cat((init_queries_first_frame, Ncorners), dim=0)
+            queries_2d_coords = torch.cat((init_queries_first_frame.to('cpu'), Ncorners), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners1), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
