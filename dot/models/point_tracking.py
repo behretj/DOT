@@ -65,8 +65,31 @@ class PointTracker(nn.Module):
         else:
             raise ValueError(f"Unknown mode {mode}")
 
-
     def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
+        if n_keypoints <= 0:
+            return torch.empty((0, 2)).to('cuda')
+        src_frame_tensor = src_frame_tensor.to('cpu')
+        r, g, b = src_frame_tensor[:, 0, :, :], src_frame_tensor[:, 1, :, :], src_frame_tensor[:, 2, :, :]
+        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b  # according to the human eye may not be best here
+        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
+        grayscale_numpy = grayscale_tensor.numpy()
+        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+        # get the N strongest corners indexes
+        flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:]
+        Ncorners = torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape),
+                               dim=1)
+        return Ncorners.to('cuda')
+
+    def dst_harris_computation(self, src_frame_tensor):
+        src_frame_tensor = src_frame_tensor.to('cpu')
+        r, g, b = src_frame_tensor[:, 0, :, :], src_frame_tensor[:, 1, :, :], src_frame_tensor[:, 2, :, :]
+        grayscale_tensor = 0.2989 * r + 0.5870 * g + 0.1140 * b  # according to the human eye may not be best here
+        grayscale_tensor = torch.permute(grayscale_tensor, (1, 2, 0))
+        grayscale_numpy = grayscale_tensor.numpy()
+        dst = cv2.cornerHarris(grayscale_numpy, 2, 3, 0.04)
+        return dst
+
+    def grid_n_corner_detection(self, src_frame_tensor, n_keypoints):
         if n_keypoints <= 0:
             return torch.empty((0,2)).to('cuda')
         print('src_frame_tensor.shape', src_frame_tensor.shape)
@@ -98,10 +121,107 @@ class PointTracker(nn.Module):
         Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
         print('Ncorners', Ncorners)
         return Ncorners.to('cuda')
-    
-    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
+
+    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2000,
+                    sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
+                    nbr_grid_cell_width=20, nbr_grid_cell_height=20,
+                    **kwargs):
+
+        start = time.time()
+        video_chunck = data["video_chunk"]
+
+        B, T, _, H, W = video_chunck.shape
+        assert T >= 1  # require at least two frame to get motion boundaries (the motion boundaries are computed between frame 0 and 1
+
+        backward_tracking = True
+        flip = False
+
+        if flip:
+            video_chunck = video_chunck.flip(dims=[1])
+
+        src_points = []
+        src_step = 0
+        src_frame = video_chunck[:, src_step]
+
+        # print("init_harris : init_queries_first_frame.shape", init_queries_first_frame.shape)
+
+        # add the new keypoint to replace the keypoints we lost
+
+        nbr_per_cell = sim_tracks // (nbr_grid_cell_width * nbr_grid_cell_height)
+
+        difference = sim_tracks % (nbr_grid_cell_width * nbr_grid_cell_height)
+
+        cell_width = src_frame.shape[2] // nbr_grid_cell_width
+        cell_height = src_frame.shape[3] // nbr_grid_cell_height
+
+        # nbr_new_keypoints_per_cell = np.full([[nbr_per_cell]*nbr_grid_cell_height]* nbr_grid_cell_width))#sim_tracks-init_queries_first_frame.shape[0]
+        nbr_new_keypoints_per_cell = np.full((nbr_grid_cell_width, nbr_grid_cell_height), nbr_per_cell)
+
+        for i in range(init_queries_first_frame.shape[0]):
+            cell_w_index = int(min(nbr_grid_cell_width - 1, max(0, init_queries_first_frame[i][
+                0]) // cell_width))  # we clip the point to be in frame (in one the grid cell even if they just went out)
+            cell_h_index = int(min(nbr_grid_cell_height - 1, max(0, init_queries_first_frame[i][
+                1]) // cell_height))  # we clip the point to be in frame (in one the grid cell even if they just went out)
+            nbr_new_keypoints_per_cell[cell_w_index, cell_h_index] -= 1
+
+        harris_dist = self.dst_harris_computation(src_frame)
+
+        nbr_point_resampled = 0
+
+        queries_2d_coords = init_queries_first_frame.to('cpu')
+        for cell_w_index in range(nbr_grid_cell_width):
+            for cell_h_index in range(nbr_grid_cell_height):
+                local_dist = harris_dist[cell_w_index * cell_width:(cell_w_index + 1) * cell_width,
+                             cell_h_index * cell_height:(cell_h_index + 1) * cell_height]
+                nbr_keypoint_to_resample_in_cell = max(0, nbr_new_keypoints_per_cell[cell_w_index, cell_h_index])
+                if difference > 0:
+                    difference -= 1
+                    nbr_keypoint_to_resample_in_cell += 1
+                if nbr_keypoint_to_resample_in_cell <= 0: continue
+                nbr_point_resampled += nbr_keypoint_to_resample_in_cell
+                # get the N strongest corners indexes
+                flattened_dst_strongest_corner_indexes = np.argpartition(local_dist.flatten(),
+                                                                         -nbr_keypoint_to_resample_in_cell)[
+                                                         -nbr_keypoint_to_resample_in_cell:]
+                Ncorners = torch.stack(
+                    torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), local_dist.shape),
+                    dim=1)
+                Ncorners[:, 0] += cell_w_index * cell_width
+                Ncorners[:, 1] += cell_h_index * cell_height
+                queries_2d_coords = torch.cat((queries_2d_coords, Ncorners), dim=0)
+
+        print("Nbr of points resampled / kept / new number of keypoints: ", nbr_point_resampled,
+              init_queries_first_frame.shape[0], queries_2d_coords.shape[0], flush=True)
+
+        # print("points kept during resampling : ",init_queries_first_frame)
+
+        # add the prior = the keypoint still visible from the last tracks
+
+        vis_harris(queries_2d_coords, src_frame)
+
+        src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
+        src_corners = torch.cat((src_steps_tensor, queries_2d_coords), dim=1)  # coordonate contain src_frame_index
+        src_corners = torch.stack([src_corners], dim=0)
+        # print("init_harris : src_corners.shape", src_corners.shape)
+        # print("init_harris : src_corners]", src_corners)
+        # print("src_corners", src_corners.shape)
+        src_points.append(src_corners)
+
+        # src_points[0].shape torch.Size([1, 64, 3])
+        src_points = torch.cat(src_points, dim=1)
+
+        # src_points = torch.Size([1, 64, 3]) #3 = (frame=0, height_y width_x)
+        # print("init_harris : src_points.shape", src_points.shape)
+
+        _, _ = self.modelOnline(video_chunck.to('cuda'), src_points.to('cuda'), is_first_step=True)
+        self.OnlineCoTracker_initialized = True
+
+
+
+
+    def init_grid(self, data, num_tracks_max=8192, sim_tracks=2048,
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
-                                                        **kwargs): 
+                                                        **kwargs):
 
             N, S = 1600, 1600  # num_tracks, sim_tracks
             start = time.time()
@@ -186,12 +306,9 @@ class PointTracker(nn.Module):
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
 
-            # vis_harris(queries_2d_coords, src_frame)
+            vis_harris(queries_2d_coords, src_frame)
 
-
-
-
-            src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step).to('cuda')
+            src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
             src_corners = torch.cat((src_steps_tensor,queries_2d_coords), dim=1) #coordonate contain src_frame_index
             src_corners = torch.stack([src_corners], dim=0)
             #print("init_harris : src_corners.shape", src_corners.shape)
@@ -210,6 +327,8 @@ class PointTracker(nn.Module):
             self.OnlineCoTracker_initialized = True
 
     def merge_accumulated_tracks(self, tracks, track_overlap=4, matching_threshold = 15):
+
+        tracks = tracks.to('cpu')
 
         if self.accumulated_tracks is None:
             return tracks
@@ -274,7 +393,7 @@ class PointTracker(nn.Module):
         #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
         print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
-        return out_tracks
+        return out_tracks.to('cpu')
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
 
 
@@ -282,7 +401,7 @@ class PointTracker(nn.Module):
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
                                         **kwargs):
 
-        N, S = 1600, 1600 #num_tracks, sim_tracks
+        N, S = num_tracks, sim_tracks
         start = time.time()
         video_chunck = data["video_chunk"]
         #print("get_tracks_at_motion_boundaries_online_droid : video_chunck.shape", video_chunck.shape)
@@ -307,7 +426,7 @@ class PointTracker(nn.Module):
 
 
         lost_nbr_of_frame_not_visible = 5
-        threshold_minimum_nbr_visible_tracks_wanted = 3 * S//4
+        threshold_minimum_nbr_visible_tracks_wanted = (3*S)//4
 
 
         traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
@@ -328,14 +447,10 @@ class PointTracker(nn.Module):
             self.init_harris(data, num_tracks=8192, sim_tracks=2048, init_queries_first_frame=queries_kept)
 
 
-
-
         if flip:
             tracks = tracks.flip(dims=[1])
         end = time.time()
         print('runtime for tracking:', end - start)
-
-        torch.cuda.empty_cache()
 
         return {"tracks": tracks}
 
