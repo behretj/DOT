@@ -263,7 +263,7 @@ class PointTracker(nn.Module):
 
 
 
-    def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=8192, sim_tracks=2048,
+    def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=2000, sim_tracks=2000,
                                         **kwargs):
 
         N, S = num_tracks, sim_tracks
@@ -286,7 +286,7 @@ class PointTracker(nn.Module):
 
         if not self.OnlineCoTracker_initialized:
             self.accumulated_tracks = None
-            self.init_harris(data, num_tracks=8192, sim_tracks=2048)
+            self.init_harris(data, num_tracks=num_tracks, sim_tracks=sim_tracks)
             return {"tracks": tracks}
 
 
@@ -310,7 +310,7 @@ class PointTracker(nn.Module):
             self.accumulated_tracks_end_dict = None
             tracks_not_lost_mask = tracks_not_lost_vis==1
             queries_kept = traj[0,-1, tracks_not_lost_mask,:]
-            self.init_harris(data, num_tracks=8192, sim_tracks=2048, init_queries_first_frame=queries_kept)
+            self.init_harris(data, num_tracks=num_tracks, sim_tracks=sim_tracks, init_queries_first_frame=queries_kept)
 
 
         if flip:
