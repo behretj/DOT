@@ -69,14 +69,14 @@ class PointTracker(nn.Module):
     def harris_n_corner_detection(self, src_frame_tensor, n_keypoints):
         if n_keypoints <= 0:
             return torch.empty((0,2)).to('cuda')
-        print('src_frame_tensor.shape', src_frame_tensor.shape)
+        #print('src_frame_tensor.shape', src_frame_tensor.shape)
         b, c, height, width = src_frame_tensor.shape
         h_step, w_step = height // int(1 + math.sqrt(n_keypoints)), width // int(1 + math.sqrt(n_keypoints))
         grid_points = []
         for y in range(h_step, height - h_step, h_step):
             for x in range(w_step, width - w_step, w_step):
                 grid_points.append([x, y])
-        print(f'getting {n_keypoints} grids from image shape {src_frame_tensor.shape}:', len(grid_points))
+        #print(f'getting {n_keypoints} grids from image shape {src_frame_tensor.shape}:', len(grid_points))
         x, y = 3, 3
         while n_keypoints > len(grid_points):
             grid_points.append([x, y])
@@ -96,7 +96,7 @@ class PointTracker(nn.Module):
         #get the N strongest corners indexes
         flattened_dst_strongest_corner_indexes = np.argpartition(dst.flatten(), -n_keypoints)[-n_keypoints:]
         Ncorners =torch.stack(torch.unravel_index(torch.from_numpy(flattened_dst_strongest_corner_indexes), dst.shape), dim=1)
-        print('Ncorners', Ncorners)
+        #print('Ncorners', Ncorners)
         return Ncorners.to('cuda')
     
     def init_harris(self, data, num_tracks_max=8192, sim_tracks=2048,
@@ -136,13 +136,13 @@ class PointTracker(nn.Module):
             to_resample = [nbr_samples//4]*4
 
             difference_left = nbr_samples-sum(to_resample)
-            print(difference_left)
-            print(to_resample)
+            # print(difference_left)
+            # print(to_resample)
 
 
             for i in range(difference_left):
                 to_resample[i%4] +=1
-            print(to_resample)
+            # print(to_resample)
 
             for i in range(init_queries_first_frame.shape[0]):
                 if init_queries_first_frame[i][0]<=center_point[0]:
@@ -156,7 +156,7 @@ class PointTracker(nn.Module):
                     else:
                         to_resample[3] -= 1
 
-            print(to_resample)
+            # print(to_resample)
             for i in range(2*len(center_point)):
                 if to_resample[i%4] < 0:
                     to_resample[(i+1)%4] += to_resample[i%4]
@@ -176,7 +176,7 @@ class PointTracker(nn.Module):
             Ncorners3[:,1] += center_point[1]
 
 
-            print("Nbr of points resampled / kept / repartition: ", (nbr_new_keypoint), init_queries_first_frame.shape[0], to_resample)
+            # print("Nbr of points resampled / kept / repartition: ", (nbr_new_keypoint), init_queries_first_frame.shape[0], to_resample)
 
             #print("points kept during resampling : ",init_queries_first_frame)
             
@@ -273,7 +273,7 @@ class PointTracker(nn.Module):
         #        out_tracks = torch.nn.functional.pad(out_tracks, p3d, "constant", 0)
         #        out_tracks[:,-start_of_new_track:,-1,:] = tracks[:, :, j, :]
 
-        print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
+        # print("merge_accumulated_tracks : out_tracks.shape, track extended, track created", out_tracks.shape, counter_extended, counter_created)
         return out_tracks
         #track_accumulator[:-4] #last four frames overlap continuity was made on the first of this last frame
 
@@ -333,7 +333,7 @@ class PointTracker(nn.Module):
         if flip:
             tracks = tracks.flip(dims=[1])
         end = time.time()
-        print('runtime for tracking:', end - start)
+        # print('runtime for tracking:', end - start)
 
         torch.cuda.empty_cache()
 
@@ -452,7 +452,7 @@ class PointTracker(nn.Module):
         if flip:
             tracks = tracks.flip(dims=[1])
         end = time.time()
-        print('runtime for tracking:', end - start)
+        # print('runtime for tracking:', end - start)
 
         return {"tracks": tracks}
 
