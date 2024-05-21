@@ -109,17 +109,25 @@ class PointTracker(nn.Module):
             return torch.empty((0,2))
         #print('src_frame_tensor.shape', src_frame_tensor.shape)
         b, c, height, width = src_frame_tensor.shape
-        h_step, w_step = height // int(1 + math.sqrt(n_keypoints)), width // int(1 + math.sqrt(n_keypoints))
-        grid_points = []
-        for y in range(h_step, height - h_step, h_step):
-            for x in range(w_step, width - w_step, w_step):
-                grid_points.append([x, y])
+        num = round(1 + math.sqrt(n_keypoints))
+        # h_step, w_step = height // int(1 + math.sqrt(n_keypoints)), width // int(1 + math.sqrt(n_keypoints))
+        # grid_points = []
+        # for y in range(h_step, height - h_step, h_step):
+        #     for x in range(w_step, width - w_step, w_step):
+        #         grid_points.append([x, y])
+        grid_a = np.linspace(1, width - 1, num)
+        grid_b = np.linspace(1, height - 1, num)
+        grid_x, grid_y = np.meshgrid(grid_a, grid_b)
+        grid_points = np.vstack((grid_x.flatten(), grid_y.flatten())).T.astype(np.int32)
+        # print('grid_points', grid_points)
+        # print('n_keypoints', n_keypoints)
         #print(f'getting {n_keypoints} grids from image shape {src_frame_tensor.shape}:', len(grid_points))
-        x, y = 3, 3
-        while n_keypoints > len(grid_points):
-            grid_points.append([x, y])
-            x += w_step
-            y += h_step
+        # x, y = 3, 3
+        # while n_keypoints > len(grid_points):
+        #     grid_points.append([x, y])
+        #     x += w_step
+        #     y += h_step
+        # if len(grid_points) == 0: return torch.empty((0,2))
         return torch.tensor(grid_points)
 
     def init_harris(self, data, num_tracks_max=8192, sim_tracks=2000,
@@ -189,14 +197,14 @@ class PointTracker(nn.Module):
                 Ncorners[:, 1] += cell_h_index * cell_height
                 queries_2d_coords = torch.cat((queries_2d_coords, Ncorners), dim=0)
 
-        print("Nbr of points resampled / kept / new number of keypoints: ", nbr_point_resampled,
-              init_queries_first_frame.shape[0], queries_2d_coords.shape[0], flush=True)
+        # print("Nbr of points resampled / kept / new number of keypoints: ", nbr_point_resampled,
+            #   init_queries_first_frame.shape[0], queries_2d_coords.shape[0], flush=True)
 
         # print("points kept during resampling : ",init_queries_first_frame)
 
         # add the prior = the keypoint still visible from the last tracks
 
-        vis_harris(queries_2d_coords, src_frame)
+        # vis_harris(queries_2d_coords, src_frame)
 
         src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
         src_corners = torch.cat((src_steps_tensor, queries_2d_coords), dim=1)  # coordonate contain src_frame_index
@@ -300,7 +308,7 @@ class PointTracker(nn.Module):
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners2), dim=0)
             queries_2d_coords = torch.cat((queries_2d_coords, Ncorners3), dim=0)
 
-            vis_harris(queries_2d_coords, src_frame)
+            # vis_harris(queries_2d_coords, src_frame)
 
             src_steps_tensor = torch.full((queries_2d_coords.shape[0], 1), src_step)
             src_corners = torch.cat((src_steps_tensor,queries_2d_coords), dim=1) #coordonate contain src_frame_index
@@ -392,7 +400,7 @@ class PointTracker(nn.Module):
                                         **kwargs):
 
         N, S = num_tracks, sim_tracks
-        start = time.time()
+        # start = time.time()
         video_chunck = data["video_chunk"]
         #print("get_tracks_at_motion_boundaries_online_droid : video_chunck.shape", video_chunck.shape)
 
@@ -438,8 +446,8 @@ class PointTracker(nn.Module):
 
         if flip:
             tracks = tracks.flip(dims=[1])
-        end = time.time()
-        print('runtime for tracking:', end - start)
+        # end = time.time()
+        # print('runtime for tracking:', end - start)
 
         return {"tracks": tracks}
 
@@ -500,7 +508,7 @@ class PointTracker(nn.Module):
     def get_tracks_at_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048, sample_mode="all",
                                         **kwargs):
         num_tracks, sim_tracks = 64, 64
-        start = time.time()
+        # start = time.time()
         video = data["video"]
         N, S = num_tracks, sim_tracks
         B, T, _, H, W = video.shape
@@ -555,8 +563,8 @@ class PointTracker(nn.Module):
 
         if flip:
             tracks = tracks.flip(dims=[1])
-        end = time.time()
-        print('runtime for tracking:', end - start)
+        # end = time.time()
+        # print('runtime for tracking:', end - start)
 
         return {"tracks": tracks}
 

@@ -131,7 +131,7 @@ class OpticalFlow(nn.Module):
         return
     
     def rm_flows(self, ii, jj, store=False):
-        print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
+        # print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
         # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
         if store:
             # move the stored refined_flow and weight to ..._inac
@@ -178,25 +178,24 @@ class OpticalFlow(nn.Module):
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
-            if i not in self.refined_flow.keys(): #and i not in self.refined_weight_inac.keys():
+            if i not in self.refined_flow.keys():# and i not in self.refined_weight_inac.keys():
                 self.refined_flow[i] = dict()
                 self.refined_weight[i] = dict()
             else:
                 if i in self.refined_flow.keys() and j in self.refined_flow[i].keys():
-                    # target.append(self.refined_flow[i][j])
-                    # weight.append(self.refined_weight[i][j])
                     continue
                 elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
-                    # target.append(self.refined_flow[i][j])
-                    # weight.append(self.refined_weight[i][j])
+                    # move from inac to ac
+                    self.refined_flow[i][j] = self.refined_flow_inac[i][j]
+                    self.refined_weight[i][j] = self.refined_weight_inac[i][j]
+                    self.refined_flow_inac[i].pop(j)
+                    self.refined_weight_inac[i].pop(j)
                     continue
                 
-            print(f'optical flow: getting refined flow between frame {i} to {j}')
+            # print(f'optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
-            # src_frame =  video[:, i]
             src_frame =  video[i][None].cuda()
             tgt_points = track[:, j].to('cuda')
-            # tgt_frame =  video[:, j]
             tgt_frame =  video[j][None].cuda()
 
             data = {
