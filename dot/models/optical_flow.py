@@ -142,8 +142,8 @@ class OpticalFlow(nn.Module):
                     self.refined_flow_inac[i] = dict()
                     self.refined_weight_inac[i] = dict()
                 # print('keys for {i}:', self.refined_flow[i].keys())
-                self.refined_flow_inac[i][j] = self.refined_flow[i][j].to('cpu')
-                self.refined_weight_inac[i][j] = self.refined_weight[i][j].to('cpu')
+                self.refined_flow_inac[i][j] = self.refined_flow[i][j]#.to('cpu')
+                self.refined_weight_inac[i][j] = self.refined_weight[i][j]#.to('cpu')
         # delete the refined_flow and weight
         for idx in range(len(ii)):
             i = ii[idx]
@@ -251,8 +251,8 @@ class OpticalFlow(nn.Module):
             gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
             gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
             weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
-            self.refined_flow[i][j] = flow[0].to('cpu')
-            self.refined_weight[i][j] = weighted_alpha[0].to('cpu')
+            self.refined_flow[i][j] = flow[0]#.to('cpu')
+            self.refined_weight[i][j] = weighted_alpha[0]#.to('cpu')
 
             
             # target.append(flow[0])
