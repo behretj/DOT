@@ -48,7 +48,9 @@ class PointTracker(nn.Module):
             'harris' : self.init_harris,
             'grid' : self.init_grid
             }
-        self.init_sampl_func = sampling_inititization_functions['harris']
+        self.init_sampl_func = sampling_inititization_functions['grid']
+        self.num_tracks, self.sim_tracks = 64, 64
+        
 
         if isOnline:
             self.OnlineCoTracker_initialized = False
@@ -391,7 +393,7 @@ class PointTracker(nn.Module):
     def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=2000, sim_tracks=2000,
                                         **kwargs):
 
-        N, S = num_tracks, sim_tracks
+        N, S = self.num_tracks, self.sim_tracks
         start = time.time()
         video_chunck = data["video_chunk"]
         #print("get_tracks_at_motion_boundaries_online_droid : video_chunck.shape", video_chunck.shape)
