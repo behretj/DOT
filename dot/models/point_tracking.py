@@ -128,11 +128,11 @@ class PointTracker(nn.Module):
         grid_b = np.linspace(1, height - 1, num)
         grid_x, grid_y = np.meshgrid(grid_a, grid_b)
         grid_points = np.vstack((grid_x.flatten(), grid_y.flatten())).T.astype(np.int16)
-        x, y = 2, 3
+        x, y = 8, 8
         while n_keypoints > grid_points.shape[0]:
             grid_points = np.vstack((grid_points, np.array([x, y], dtype=np.int16)))
-            x += 3
-            y += 3
+            x += 20
+            y += 20
         # print(f'n_keypoints: {n_keypoints}, grid_points.shape: {grid_points.shape}')
         return torch.tensor(grid_points)
 
@@ -228,7 +228,7 @@ class PointTracker(nn.Module):
 
 
 
-    def init_grid(self, data, num_tracks_max=1600, sim_tracks=1600,
+    def init_grid(self, data, num_tracks_max=2000, sim_tracks=2000,
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
                                                         **kwargs):
 
