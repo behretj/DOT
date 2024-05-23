@@ -44,6 +44,8 @@ class PointTracker(nn.Module):
         super().__init__()
         model_args = read_config(tracker_config)
 
+        self.cnt = 0
+
         sampling_inititization_functions  = {
             'harris' : self.init_harris,
             'grid' : self.init_grid
@@ -71,6 +73,7 @@ class PointTracker(nn.Module):
         self.optical_flow_estimator = OpticalFlow(height, width, estimator_config, estimator_path)
 
     def forward(self, data, mode, **kwargs):
+        self.cnt += 1
         if mode == "tracks_at_motion_boundaries":
             return self.get_tracks_at_motion_boundaries(data, **kwargs)
         elif mode == "tracks_at_motion_boundaries_online_droid":
@@ -129,14 +132,15 @@ class PointTracker(nn.Module):
         grid_x, grid_y = np.meshgrid(grid_a, grid_b)
         grid_points = np.vstack((grid_x.flatten(), grid_y.flatten())).T.astype(np.int16)
         x, y = 8, 8
+        gap = 20
         while n_keypoints > grid_points.shape[0]:
             grid_points = np.vstack((grid_points, np.array([x, y], dtype=np.int16)))
-            x += 20
-            y += 20
+            x += gap
+            y += gap
         # print(f'n_keypoints: {n_keypoints}, grid_points.shape: {grid_points.shape}')
         return torch.tensor(grid_points)
 
-    def init_harris(self, data, num_tracks_max=8192, sim_tracks=2000,
+    def init_harris(self, data, num_tracks_max=8192, sim_tracks=512,
                     sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
                     nbr_grid_cell_width=20, nbr_grid_cell_height=20,
                     **kwargs):
@@ -228,7 +232,7 @@ class PointTracker(nn.Module):
 
 
 
-    def init_grid(self, data, num_tracks_max=2000, sim_tracks=2000,
+    def init_grid(self, data, num_tracks_max=512, sim_tracks=512,
                                                         sample_mode="first", init_queries_first_frame=torch.empty((0, 2)).to('cuda'),
                                                         **kwargs):
 
@@ -332,6 +336,8 @@ class PointTracker(nn.Module):
 
     def merge_accumulated_tracks(self, tracks, track_overlap=4, matching_threshold = 15):
 
+        matching_threshold = 15
+
         tracks = tracks.to('cpu')
 
         if self.accumulated_tracks is None:
@@ -402,7 +408,7 @@ class PointTracker(nn.Module):
 
 
 
-    def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=2000, sim_tracks=2000,
+    def get_tracks_at_motion_boundaries_online_droid(self, data, num_tracks=512, sim_tracks=512,
                                         **kwargs):
 
         N, S = num_tracks, sim_tracks
@@ -443,7 +449,8 @@ class PointTracker(nn.Module):
         tracks_not_lost_vis, _ = torch.max(vis_lost_window, 0) #dim 0 is the time(frames)
 
         tracks = self.merge_accumulated_tracks(tracks)
-        if torch.sum(tracks_not_lost_vis)<threshold_minimum_nbr_visible_tracks_wanted:
+        if True:
+        # if torch.sum(tracks_not_lost_vis)<threshold_minimum_nbr_visible_tracks_wanted:
             self.accumulated_tracks = tracks
             self.accumulated_tracks_end_dict = None
             tracks_not_lost_mask = tracks_not_lost_vis==1
@@ -458,7 +465,7 @@ class PointTracker(nn.Module):
         return {"tracks": tracks}
 
 
-    def init_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048,
+    def init_motion_boundaries(self, data, num_tracks=8192, sim_tracks=512,
                                                      sample_mode="first",
                                                      **kwargs): 
 
@@ -511,7 +518,7 @@ class PointTracker(nn.Module):
         self.OnlineCoTracker_initialized = True
 
 
-    def get_tracks_at_motion_boundaries(self, data, num_tracks=8192, sim_tracks=2048, sample_mode="all",
+    def get_tracks_at_motion_boundaries(self, data, num_tracks=8192, sim_tracks=512, sample_mode="all",
                                         **kwargs):
         num_tracks, sim_tracks = 64, 64
         # start = time.time()
@@ -574,7 +581,7 @@ class PointTracker(nn.Module):
 
         return {"tracks": tracks}
 
-    def get_flow_from_last_to_first_frame(self, data, sim_tracks=2048, **kwargs):
+    def get_flow_from_last_to_first_frame(self, data, sim_tracks=512, **kwargs):
         video = data["video"]
         video = video.flip(dims=[1])
         src_step = 0  # We have flipped video over temporal axis so src_step is 0
