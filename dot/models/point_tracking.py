@@ -336,7 +336,7 @@ class PointTracker(nn.Module):
 
     def merge_accumulated_tracks(self, tracks, track_overlap=4, matching_threshold = 15):
 
-        matching_threshold = 15
+        matching_threshold = 5
 
         tracks = tracks.to('cpu')
 
