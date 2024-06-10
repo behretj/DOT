@@ -50,7 +50,7 @@ class PointTracker(nn.Module):
             'harris' : self.init_harris,
             'grid' : self.init_grid
             }
-        self.init_sampl_func = sampling_inititization_functions['grid']
+        self.init_sampl_func = sampling_inititization_functions['harris']
 
         if isOnline:
             self.OnlineCoTracker_initialized = False
@@ -336,7 +336,7 @@ class PointTracker(nn.Module):
 
     def merge_accumulated_tracks(self, tracks, track_overlap=4, matching_threshold = 15):
 
-        matching_threshold = 5
+        matching_threshold = 15
 
         tracks = tracks.to('cpu')
 
