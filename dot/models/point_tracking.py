@@ -436,7 +436,7 @@ class PointTracker(nn.Module):
 
 
         lost_nbr_of_frame_not_visible = 5
-        threshold_minimum_nbr_visible_tracks_wanted = (3*S)//4
+        threshold_minimum_nbr_visible_tracks_wanted = (7*S)//8
 
 
         traj, vis = self.modelOnline(video_chunck, None, is_first_step=False)
@@ -449,8 +449,8 @@ class PointTracker(nn.Module):
         tracks_not_lost_vis, _ = torch.max(vis_lost_window, 0) #dim 0 is the time(frames)
 
         tracks = self.merge_accumulated_tracks(tracks)
-        if True:
-        # if torch.sum(tracks_not_lost_vis)<threshold_minimum_nbr_visible_tracks_wanted:
+        #if True:
+        if torch.sum(tracks_not_lost_vis)<threshold_minimum_nbr_visible_tracks_wanted:
             self.accumulated_tracks = tracks
             self.accumulated_tracks_end_dict = None
             tracks_not_lost_mask = tracks_not_lost_vis==1
