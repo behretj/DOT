@@ -362,7 +362,7 @@ class PointTracker(nn.Module):
             replace the old track by the output of merge_accumulated_tracks(old track + completed new ones)
             Reinitialize a new instance of cotracker with all track not considered as lost in the last finsihed run 
     '''
-    def tracks_online_droid(self, data, num_tracks=512, sim_tracks=512,
+    def get_tracks_online_droid(self, data, num_tracks=512, sim_tracks=512,
                                         **kwargs):
 
         N, S = num_tracks, sim_tracks
