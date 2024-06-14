@@ -1,0 +1,14 @@
+/cluster/courses/3dv/data/team-4/DOT-SLAM/thirdparty/DOT/dot/utils/torch3d/cub-2.1.0
+working
+/home/tducrey/DOT-SLAM/droid_slam/thirdparty/DOT
+Performing evaluation on P005
+DepthVideo __init__: buffer 400
+DepthVideo __init__: image_size [512, 512]
+saving poses
+  ATE scale: 16.197482048856056
+{'ate_score': 14.635243290157021, 'rpe_score': (0.149467196629171, 16.450865148856543), 'kitti_score': (0.6370394781172891, 1.2031572177724277)}
+Results
+[14.635243290157021]
+saving filled poses
+finished
+finished
