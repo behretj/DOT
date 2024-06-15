@@ -19,6 +19,7 @@ from dot.utils.plot import to_rgb, plot_points
 import os.path as osp
 
 def vis_gaussian_weighting(tensor1, tensor2, i, j):
+    """ Creates figure of the weights for debugging purposes """
     tensor1 = tensor1.squeeze(0)
     tensor2 = tensor2.squeeze(0)
 
@@ -28,45 +29,35 @@ def vis_gaussian_weighting(tensor1, tensor2, i, j):
     channel_1_cpu = channel_1.cpu().numpy()
     channel_2_cpu = channel_2.cpu().numpy()
 
-    # Create a figure with two subplots
     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
 
-    # Plot the first channel
     im1= axes[0].imshow(channel_1_cpu, cmap='gray')
     axes[0].set_title('Regular Gaussian')
     plt.colorbar(im1, ax=axes[0], orientation='vertical', label='Value')
 
-    # Plot the second channel
     im2 = axes[1].imshow(channel_2_cpu, cmap='gray')
     axes[1].set_title('Fast Gaussian')
     plt.colorbar(im2, ax=axes[1], orientation='vertical', label='Value')
 
-    # Save the figure
     plt.savefig(f'gaussian_weighting_{i}_{j}.png')
     plt.close(fig)
 
-def old_apply_gaussian_weights(alpha, cotracker_predictions, sigma):
-    y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
-    x_coords = x_coords.float().to(device="cuda:0", dtype=torch.long)
-    y_coords = y_coords.float().to(device="cuda:0", dtype=torch.long)
-    
-    cotracker_predictions = cotracker_predictions.squeeze(0)
-    
-    weighted_alpha = torch.zeros_like(alpha)
-    
-    for confident_point in cotracker_predictions:
-        if confident_point[2]: # if track visible at that point TODO
-            distances_squared = (x_coords - confident_point[0])**2 + (y_coords - confident_point[1])**2
-            weights = torch.exp(-distances_squared / (2 * sigma**2))
-            weighted_alpha += weights
-    
-    weighted_alpha *= alpha
-    weighted_alpha /= torch.max(weighted_alpha)
-    weighted_alpha = weighted_alpha.unsqueeze(-1)
-    
-    return weighted_alpha.repeat(1, 1, 1, 2) # duplicate every value along a new dimension to achieve torch.Size([1, 512, 512, 2])
+def apply_gaussian_weights(alpha, cotracker_predictions, sigma, use_alpha=False):
+    """Applies Gaussian Filter to coordinates of the cotracker tracks with the given sigma.
+    This function uses torch operations optimized for GPU to efficiently calculate weighted averages
+    of alpha channel values based on spatial distances from cotracker predictions.
 
-def apply_gaussian_weights(alpha, cotracker_predictions, sigma):
+    Parameters:
+        alpha (torch.Tensor): A 3D tensor of shape (1, H, W) where H is the height, and W is the width of the input feature map.
+        cotracker_predictions (torch.Tensor): A 3D tensor of shape (N, 3) where N is the number of tracks.
+                              Each prediction contains the x coordinate, y coordinate, and a visibility value.
+        sigma (float): Standard deviation of the Gaussian distribution used for weighing.
+        use_alpha (bool): If True, multiplies the result by the input alpha tensor.
+
+    Returns:
+        torch.Tensor: A tensor of the same height and width as 'alpha', but with two channels because it needs to match the flow field,
+                      replicated across the last dimension. Shape (1, H, W, 2)
+    """
     y_coords, x_coords = torch.meshgrid(torch.arange(alpha.size(1)), torch.arange(alpha.size(2)))
     x_coords = x_coords.float().to(device="cuda:0").unsqueeze(0)
     y_coords = y_coords.float().to(device="cuda:0").unsqueeze(0)
@@ -77,7 +68,8 @@ def apply_gaussian_weights(alpha, cotracker_predictions, sigma):
     
     weights = torch.exp(-distances_squared / (2 * sigma**2))
     weights *= cotracker_predictions[:,:,:,2]
-    weighted_alpha = torch.sum(weights, dim=0) # * alpha
+    weighted_alpha = torch.sum(weights, dim=0)
+    if use_alpha: weighted_alpha *= alpha
     weighted_alpha /= torch.max(weighted_alpha)
 
     return weighted_alpha.unsqueeze(-1).repeat(1, 1, 1, 2)
@@ -132,7 +124,7 @@ class OpticalFlow(nn.Module):
     
     def rm_flows(self, ii, jj, store=False):
         # print(f'optical_flow, rm_flows: removing frame {ii} to {jj}, with store={store}')
-        # print(f'optical_flow: current flows: {self.refined_flow.keys()}')
+        
         if store:
             # move the stored refined_flow and weight to ..._inac
             for idx in range(len(ii)):
@@ -141,15 +133,16 @@ class OpticalFlow(nn.Module):
                 if i not in self.refined_flow_inac.keys():
                     self.refined_flow_inac[i] = dict()
                     self.refined_weight_inac[i] = dict()
-                # print('keys for {i}:', self.refined_flow[i].keys())
-                self.refined_flow_inac[i][j] = self.refined_flow[i][j]#.to('cpu')
-                self.refined_weight_inac[i][j] = self.refined_weight[i][j]#.to('cpu')
+                
+                self.refined_flow_inac[i][j] = self.refined_flow[i][j].to('cpu')
+                self.refined_weight_inac[i][j] = self.refined_weight[i][j].to('cpu')
         # delete the refined_flow and weight
-        for idx in range(len(ii)):
-            i = ii[idx]
-            j = jj[idx]
-            self.refined_flow[i].pop(j)
-            self.refined_weight[i].pop(j)
+        if store:
+            for idx in range(len(ii)):
+                i = ii[idx]
+                j = jj[idx]
+                self.refined_flow[i].pop(j)
+                self.refined_weight[i].pop(j)
         torch.cuda.empty_cache()
         return
     
@@ -163,36 +156,21 @@ class OpticalFlow(nn.Module):
         Output:
             - target: torch.Size([1, 60, 48, 64, 2])
         """
-        # T, C, h, w = video.shape
-        # H, W = 512, 512
-        # # reshape video 
-        # # TODO: reshape it when inputing instead of doing it every time here
-        # if h != H or w != W:
-        #     video = F.interpolate(video, size=(H, W), mode="bilinear")
-        #     video = video.reshape(T, C, H, W)[None]
-        # else:
-        #     video = video[None] # add dimension (batch)
-
         l = len(ii)
-        # target, weight = [], []
+        
         for idx in range(l):
             i = ii[idx]
             j = jj[idx]
-            if i not in self.refined_flow.keys():# and i not in self.refined_weight_inac.keys():
+            if i not in self.refined_flow.keys(): #and i not in self.refined_weight_inac.keys():
                 self.refined_flow[i] = dict()
                 self.refined_weight[i] = dict()
             else:
                 if i in self.refined_flow.keys() and j in self.refined_flow[i].keys():
                     continue
                 elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
-                    # move from inac to ac
-                    self.refined_flow[i][j] = self.refined_flow_inac[i][j]
-                    self.refined_weight[i][j] = self.refined_weight_inac[i][j]
-                    self.refined_flow_inac[i].pop(j)
-                    self.refined_weight_inac[i].pop(j)
                     continue
                 
-            # print(f'optical flow: getting refined flow between frame {i} to {j}')
+            print(f'optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
             src_frame =  video[i][None].cuda()
             tgt_points = track[:, j].to('cuda')
@@ -204,8 +182,8 @@ class OpticalFlow(nn.Module):
                 "src_points": src_points,
                 "tgt_points": tgt_points
             }
-            # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
-            coarse_flow, coarse_alpha, _ = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
+            
+            coarse_flow, coarse_alpha = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
             flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
                                     tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
@@ -216,56 +194,15 @@ class OpticalFlow(nn.Module):
                                     is_train=False,
                                     slam_refinement=True)
             
-            # if random.random() < 0.07:
-            #     print(f'optical_flow: visualizing flow {i}-{j}//////////////')
-            #     write_frame(to_rgb(flow, "flow")[0], osp.join('/home/wangwen/DOT-SLAM/flow_visualize', f"pred_flow_{i}_{j}.png"))
-
-            # if [int(i), int(j)] in [[15, 19], [17, 15], [21, 15], [26, 24], [79, 80], [94, 96], [100, 104], [114, 117], [122, 118], [126, 122], [127, 128], [135, 133]]:
-            # # if random.random() < 0.03:
-            #     scale_x, scale_y = 640/128, 480/128
-            #     print(f'optical_flow, saved flow[{i}][{j}].shape:', flow.shape)
-            #     resized_flow = cv2.resize(flow[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
-            #     resized_flow = resized_flow * [scale_x, scale_y]
-            #     print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            #     np.save(f'./flow_grid_epe/resized_flow_{i}_{j}.npy', resized_flow)
-
-            #     flow_up, alpha_up = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
-            #                         tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
-            #                         src_feats=data["src_feats"] if "src_feats" in data else None,
-            #                         tgt_feats=data["tgt_feats"] if "tgt_feats" in data else None,
-            #                         coarse_flow=coarse_flow,
-            #                         coarse_alpha=coarse_alpha,
-            #                         is_train=False,
-            #                         slam_refinement=False)
-            #     scale_x, scale_y = 640/512, 480/512
-            #     print(f'optical_flow, saved flow[{i}][{j}].shape:', flow.shape)
-            #     resized_flow = cv2.resize(flow_up[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
-            #     resized_flow = resized_flow * [scale_x, scale_y]
-            #     print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            #     np.save(f'./flow_grid_epe/upscale_resized_flow_{i}_{j}.npy', resized_flow)
-            # # TODO: make this dynamic (only works for 512, 512 right now)
             H, W = 512, 512
-            # weighted_alpha = old_apply_gaussian_weights(alpha, data["src_points"], (H+W)*0.01) # 0.05 -> divide by two for height H and width W, and divide by 10 for the weigthing 
-            # bring the coordinates back to image dimension:
             gaussian_src_points = src_points.clone().detach()
             gaussian_src_points[...,0] = gaussian_src_points[...,0]*(W-1)
             gaussian_src_points[...,1] = gaussian_src_points[...,1]*(H-1)
             weighted_alpha = apply_gaussian_weights(alpha, gaussian_src_points, (H+W)*0.01)
-            self.refined_flow[i][j] = flow[0]#.to('cpu')
-            self.refined_weight[i][j] = weighted_alpha[0]#.to('cpu')
-
-            
-            # target.append(flow[0])
-            # weight.append(weighted_alpha[0])
-        # target = torch.stack(target, dim=0)[None]
-        # weight = torch.stack(weight, dim=0)[None]
-        # if len(track[0]) > 80:
-        #     self.get_flow_magnitude(track=track, video=video)
-        # if (not self.export_epe) and len(track[0]) > 140:
-        #     self.save_flows_for_epe(track=track, video=video)
-        #     self.export_epe = True
+            self.refined_flow[i][j] = flow[0].to('cpu')
+            self.refined_weight[i][j] = weighted_alpha[0].to('cpu')
         torch.cuda.empty_cache()
-        # return target, weight
+
     
     def get_flow_magnitude(self, track, video, coord0):
         return
