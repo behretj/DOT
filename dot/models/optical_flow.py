@@ -95,19 +95,7 @@ class OpticalFlow(nn.Module):
         self.export_epe = False
 
     def forward(self, data, mode, **kwargs):
-        if mode == "flow_with_tracks_init":
-            return self.get_flow_with_tracks_init(data, **kwargs)
-        elif mode == "motion_boundaries":
-            return self.get_motion_boundaries(data, **kwargs)
-        elif mode == "feats":
-            return self.get_feats(data, **kwargs)
-        elif mode == "tracks_for_queries":
-            return self.get_tracks_for_queries(data, **kwargs)
-        elif mode == "tracks_from_first_to_every_other_frame":
-            return self.get_tracks_from_first_to_every_other_frame(data, **kwargs)
-        elif mode == "flow_from_last_to_first_frame":
-            return self.get_flow_from_last_to_first_frame(data, **kwargs)
-        elif mode == "flow_between_frames":
+        if mode == "flow_between_frames":
             return self.get_flow_between_frames(data, **kwargs)
         else:
             raise ValueError(f"Unknown mode {mode}")
@@ -203,18 +191,11 @@ class OpticalFlow(nn.Module):
             self.refined_weight[i][j] = weighted_alpha[0].to('cpu')
         torch.cuda.empty_cache()
 
-    
-    def get_flow_magnitude(self, track, video, coord0):
-        return
-        #print('************* get_flow_magnitude *************')
-        pairs = [(3, 6), (3, 10), (3, 14), (6, 3), (6, 10), (6, 14), (6, 18), (10, 3), (10, 6), (10, 14), (10, 18), (10, 21), (14, 3), (14, 6), (14, 10), (14, 18), (14, 21), (14, 24), (18, 6), (18, 10), (18, 14), (18, 21), (18, 24), (18, 27), (21, 10), (21, 14), (21, 18), (21, 24), (21, 27), (21, 30), (24, 14), (24, 18), (24, 21), (24, 27), (24, 30), (24, 34), (27, 18), (27, 21)]
+    def get_flow_magnitude(self, pairs, track, video, coord0):
         for (i, j) in pairs:
-            # print(f'get_flow_magnitude: optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
-            # src_frame =  video[:, i]
             src_frame =  video[i][None].cuda()
             tgt_points = track[:, j].to('cuda')
-            # tgt_frame =  video[:, j]
             tgt_frame =  video[j][None].cuda()
 
             data = {
@@ -223,7 +204,6 @@ class OpticalFlow(nn.Module):
                 "src_points": src_points,
                 "tgt_points": tgt_points
             }
-            # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
             coarse_flow, coarse_alpha, _ = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
             flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
@@ -236,19 +216,13 @@ class OpticalFlow(nn.Module):
                                     slam_refinement=True)
             scale_x, scale_y = 64/128, 48/128
             flow += coord0
-            # print(f'optical_flow, saved flow[{i}][{j}].shape:', flow.shape)
             resized_flow = cv2.resize(flow[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
-            # print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            #print(f'flow magnitude (128*128 -> 48*64): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
 
         for (i, j) in pairs:
-            # print(f'get_flow_magnitude: optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
-            # src_frame =  video[:, i]
             src_frame =  video[i][None].cuda()
             tgt_points = track[:, j].to('cuda')
-            # tgt_frame =  video[:, j]
             tgt_frame =  video[j][None].cuda()
 
             data = {
@@ -257,7 +231,6 @@ class OpticalFlow(nn.Module):
                 "src_points": src_points,
                 "tgt_points": tgt_points
             }
-            # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
             coarse_flow, coarse_alpha, _ = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
             flow_up, alpha_up = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
@@ -269,25 +242,14 @@ class OpticalFlow(nn.Module):
                                 is_train=False,
                                 slam_refinement=False)
             scale_x, scale_y = 64/512, 48/512
-            # print(f'optical_flow, saved flow[{i}][{j}].shape:', flow.shape)
             resized_flow = cv2.resize(flow_up[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
-            # print('optical_flow: reshaped flow.shape', resized_flow.shape)
-            #print(f'flow magnitude (512*512 -> 48*64): {i}-{j}: {torch.mean(torch.norm(torch.permute(torch.tensor(resized_flow)[None], (0, 3, 1, 2)), dim=1), dim=(1, 2))}')
             
-        #print('************* all computed *************')
-        assert False
-            
-    def save_flows_for_epe(self, track, video):
-        return 
-        #print('************* save_flows_for_epe *************')
-        for (i, j) in [[15, 19], [17, 15], [21, 15], [26, 24], [79, 80], [94, 96], [100, 104], [114, 117], [122, 118], [126, 122], [127, 128], [135, 133]]:
-            #print(f'save_flows_for_epe: optical flow: getting refined flow between frame {i} to {j}')
+    def save_flows_for_epe(self, pairs, track, video):
+        for (i, j) in pairs:
             src_points = track[:, i].to('cuda')
-            # src_frame =  video[:, i]
             src_frame =  video[i][None].cuda()
             tgt_points = track[:, j].to('cuda')
-            # tgt_frame =  video[:, j]
             tgt_frame =  video[j][None].cuda()
 
             data = {
@@ -296,7 +258,6 @@ class OpticalFlow(nn.Module):
                 "src_points": src_points,
                 "tgt_points": tgt_points
             }
-            # pred = self.optical_flow_refiner(data, mode="flow_with_tracks_init", **kwargs)
             coarse_flow, coarse_alpha, _ = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
             flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
@@ -308,10 +269,8 @@ class OpticalFlow(nn.Module):
                                     is_train=False,
                                     slam_refinement=True)
             scale_x, scale_y = 640/128, 480/128
-            #print(f'optical_flow, saved flow[{i}][{j}].shape:', flow.shape)
             resized_flow = cv2.resize(flow[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
-            #print('optical_flow: reshaped flow.shape', resized_flow.shape)
             np.save(f'./flow_grid_epe/resized_flow_{i}_{j}.npy', resized_flow)
 
             flow_up, alpha_up = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
@@ -323,61 +282,9 @@ class OpticalFlow(nn.Module):
                                 is_train=False,
                                 slam_refinement=False)
             scale_x, scale_y = 640/512, 480/512
-            #print(f'optical_flow, saved flow[{i}][{j}].shape:', flow.shape)
             resized_flow = cv2.resize(flow_up[0].clone().cpu().numpy(), None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             resized_flow = resized_flow * [scale_x, scale_y]
-            #print('optical_flow: reshaped flow.shape', resized_flow.shape)
             np.save(f'./flow_grid_epe/upscale_resized_flow_{i}_{j}.npy', resized_flow)
-        #print('************* all saved *************')
-        assert False
-
-    def get_motion_boundaries(self, data, boundaries_size=1, boundaries_dilation=4, boundaries_thresh=0.025, **kwargs):
-        eps = 1e-12
-        src_frame, tgt_frame = data["src_frame"], data["tgt_frame"]
-        K = boundaries_size * 2 + 1
-        D = boundaries_dilation
-        B, _, H, W = src_frame.shape
-        reflect = torch.nn.ReflectionPad2d(K // 2)
-        sobel_kernel = get_sobel_kernel(K).to(src_frame.device)
-        flow, _ = self.model(src_frame, tgt_frame)
-        norm_flow = torch.stack([flow[..., 0] / (W - 1), flow[..., 1] / (H - 1)], dim=-1)
-        norm_flow = norm_flow.permute(0, 3, 1, 2).reshape(-1, 1, H, W)
-        boundaries = F.conv2d(reflect(norm_flow), sobel_kernel)
-        boundaries = ((boundaries ** 2).sum(dim=1, keepdim=True) + eps).sqrt()
-        boundaries = boundaries.view(-1, 2, H, W).mean(dim=1, keepdim=True)
-        if boundaries_dilation > 1:
-            boundaries = torch.nn.functional.max_pool2d(boundaries, kernel_size=D * 2, stride=1, padding=D)
-            boundaries = boundaries[:, :, -H:, -W:]
-        boundaries = boundaries[:, 0]
-        boundaries = boundaries - boundaries.reshape(B, -1).min(dim=1)[0].reshape(B, 1, 1)
-        boundaries = boundaries / boundaries.reshape(B, -1).max(dim=1)[0].reshape(B, 1, 1)
-        boundaries = boundaries > boundaries_thresh
-        return {"motion_boundaries": boundaries, "flow": flow}
-
-    def get_feats(self, data, **kwargs):
-        video = data["video"]
-        feats = []
-        for step in tqdm(range(video.size(1)), desc="Extract feats for frame", leave=False):
-            feats.append(self.model.encode(video[:, step]))
-        feats = torch.stack(feats, dim=1)
-        return {"feats": feats}
-
-    def get_flow_with_tracks_init(self, data, is_train=False, interpolation_version="torch3d", alpha_thresh=0.8, **kwargs):
-        coarse_flow, coarse_alpha, _ = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
-                                                version=interpolation_version)
-        flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
-                                 tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
-                                 src_feats=data["src_feats"] if "src_feats" in data else None,
-                                 tgt_feats=data["tgt_feats"] if "tgt_feats" in data else None,
-                                 coarse_flow=coarse_flow,
-                                 coarse_alpha=coarse_alpha,
-                                 is_train=is_train)
-        if not is_train:
-            alpha = (alpha > alpha_thresh).float()
-        return {"flow": flow, "alpha": alpha, "coarse_flow": coarse_flow, "coarse_alpha": coarse_alpha}
-
-    def get_tracks_for_queries(self, data, **kwargs):
-        raise NotImplementedError
 
 
 
