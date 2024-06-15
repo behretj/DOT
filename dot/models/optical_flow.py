@@ -183,7 +183,7 @@ class OpticalFlow(nn.Module):
                 "tgt_points": tgt_points
             }
             
-            coarse_flow, coarse_alpha = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
+            coarse_flow, coarse_alpha, _ = interpolate(data["src_points"], data["tgt_points"], self.coarse_grid,
                                                     version="torch3d")
             flow, alpha = self.model(src_frame=data["src_frame"] if "src_feats" not in data else None,
                                     tgt_frame=data["tgt_frame"] if "tgt_feats" not in data else None,
