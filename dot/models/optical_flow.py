@@ -170,7 +170,7 @@ class OpticalFlow(nn.Module):
                 elif i in self.refined_flow_inac.keys() and j in self.refined_flow_inac[i].keys():
                     continue
                 
-            print(f'optical flow: getting refined flow between frame {i} to {j}')
+            #print(f'optical flow: getting refined flow between frame {i} to {j}')
             src_points = track[:, i].to('cuda')
             src_frame =  video[i][None].cuda()
             tgt_points = track[:, j].to('cuda')
