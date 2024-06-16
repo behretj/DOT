@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from dot.utils.io import create_folder
+from thirdparty.DOT.dot.utils.io import create_folder
 
 
 def to_rgb(tensor, mode, tracks=None, is_video=False, to_torch=True, reshape_as_video=False):

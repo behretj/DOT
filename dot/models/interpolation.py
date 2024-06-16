@@ -2,7 +2,7 @@ import warnings
 import torch
 
 try:
-    from dot.utils import torch3d
+    from thirdparty.DOT.dot.utils import torch3d
 except ModuleNotFoundError:
     torch3d = None
 

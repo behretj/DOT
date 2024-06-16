@@ -5,8 +5,8 @@ from tqdm import tqdm
 
 from .shelf import RAFT
 from .interpolation import interpolate
-from dot.utils.io import read_config
-from dot.utils.torch import get_grid, get_sobel_kernel
+from thirdparty.DOT.dot.utils.io import read_config
+from thirdparty.DOT.dot.utils.torch import get_grid, get_sobel_kernel
 
 import matplotlib.pyplot as plt
 
@@ -14,8 +14,8 @@ import random
 import numpy as np
 import cv2
 
-from dot.utils.io import create_folder, write_video, write_frame
-from dot.utils.plot import to_rgb, plot_points
+from thirdparty.DOT.dot.utils.io import create_folder, write_video, write_frame
+from thirdparty.DOT.dot.utils.plot import to_rgb, plot_points
 import os.path as osp
 
 def vis_gaussian_weighting(tensor1, tensor2, i, j):

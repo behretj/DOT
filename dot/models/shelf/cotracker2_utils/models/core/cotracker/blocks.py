@@ -13,7 +13,7 @@ import collections
 from torch import Tensor
 from itertools import repeat
 
-from dot.models.shelf.cotracker2_utils.models.core.model_utils import bilinear_sampler
+from thirdparty.DOT.dot.models.shelf.cotracker2_utils.models.core.model_utils import bilinear_sampler
 
 
 # From PyTorch internals

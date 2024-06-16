@@ -8,14 +8,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from dot.models.shelf.cotracker2_utils.models.core.model_utils import sample_features4d, sample_features5d
-from dot.models.shelf.cotracker2_utils.models.core.embeddings import (
+from thirdparty.DOT.dot.models.shelf.cotracker2_utils.models.core.model_utils import sample_features4d, sample_features5d
+from thirdparty.DOT.dot.models.shelf.cotracker2_utils.models.core.embeddings import (
     get_2d_embedding,
     get_1d_sincos_pos_embed_from_grid,
     get_2d_sincos_pos_embed,
 )
 
-from dot.models.shelf.cotracker2_utils.models.core.cotracker.blocks import (
+from thirdparty.DOT.dot.models.shelf.cotracker2_utils.models.core.cotracker.blocks import (
     Mlp,
     BasicEncoder,
     AttnBlock,

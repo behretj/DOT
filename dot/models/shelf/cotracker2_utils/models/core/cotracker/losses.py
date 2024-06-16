@@ -6,7 +6,7 @@
 
 import torch
 import torch.nn.functional as F
-from dot.models.shelf.cotracker2_utils.models.core.model_utils import reduce_masked_mean
+from thirdparty.DOT.dot.models.shelf.cotracker2_utils.models.core.model_utils import reduce_masked_mean
 
 EPS = 1e-6
 

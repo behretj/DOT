@@ -5,7 +5,7 @@ import torch
 from torchvision.utils import make_grid
 from torch.utils.tensorboard import SummaryWriter
 
-from dot.utils.plot import to_rgb
+from thirdparty.DOT.dot.utils.plot import to_rgb
 
 
 def detach(tensor):

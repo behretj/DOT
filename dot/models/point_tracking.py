@@ -7,8 +7,8 @@ import numpy as np
 
 from .optical_flow import OpticalFlow
 from .shelf import CoTracker2Online
-from dot.utils.io import read_config
-from dot.utils.torch import sample_points, sample_mask_points, get_grid
+from thirdparty.DOT.dot.utils.io import read_config
+from thirdparty.DOT.dot.utils.torch import sample_points, sample_mask_points, get_grid
 
 import matplotlib.pyplot as plt
 from scipy import ndimage
