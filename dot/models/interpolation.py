@@ -19,6 +19,14 @@ def interpolate(src_points, tgt_points, grid, version="torch3d"):
     # For each point in a regular grid, find indices of nearest visible source point
     grid = grid.view(1, H * W, 2).expand(B, -1, -1)  # B HW 2
     src_pos, src_alpha = src_points[..., :2], src_points[..., 2]
+    tgt_pos, tgt_alpha = tgt_points[..., :2], tgt_points[..., 2]
+    src_alpha = src_alpha * tgt_alpha
+
+    num_tracks_used = len(src_alpha[src_alpha == True])
+
+    if num_tracks_used == 0:
+        return None, None, 0
+
     if version == "torch" or (version == "torch3d" and not TORCH3D_AVAILABLE):
         if version == "torch3d":
             warnings.warn(
@@ -50,4 +58,4 @@ def interpolate(src_points, tgt_points, grid, version="torch3d"):
     flow, alpha = flow[..., :2], flow[..., 2]
     flow[..., 0] = flow[..., 0] * (W - 1)
     flow[..., 1] = flow[..., 1] * (H - 1)
-    return flow, alpha
+    return flow, alpha, num_tracks_used

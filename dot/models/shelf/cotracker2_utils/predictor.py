@@ -207,16 +207,25 @@ class CoTrackerPredictor(torch.nn.Module):
         visibilities[mask[:, :, :, 0]] = inv_visibilities[mask[:, :, :, 0]]
         return tracks, visibilities
 
-
 class CoTrackerOnlinePredictor(torch.nn.Module):
-    def __init__(self, checkpoint="./checkpoints/cotracker2.pth"):
+    def __init__(self, patch_size, wind_size):
         super().__init__()
         self.support_grid_size = 6
-        model = build_cotracker(checkpoint)
+        model = build_cotracker(patch_size, wind_size)
         self.interp_shape = model.model_resolution
         self.step = model.window_len // 2
         self.model = model
         self.model.eval()
+
+    def generate_queries_for_image(self, image, nbr_corners_to_detect):
+        #Run harris to extract keypoints 
+        #sort keypoints using corner certitude (harris)
+        # take the nbr_corners_to_detect
+        # take the difference new_corner \ self.queries  = new_corner 
+        # process next keypoints in order until nbr_corners_to_detect-len(new_corner) = 0 while appending keypoint not in self.queries
+        #self.queries = new_corner
+        pass
+
 
     @torch.no_grad()
     def forward(
@@ -230,8 +239,16 @@ class CoTrackerOnlinePredictor(torch.nn.Module):
     ):
         # Initialize online video processing and save queried points
         # This needs to be done before processing *each new video*
-        if is_first_step:
+
+        #threshold_nbr_tracks = 75 TODO for adaptative harris sampling
+        #if self.queries is None or self.queries.shape[1]<threshold_nbr_tracks:
+        #    self.generate_queries_for_image(video_chunk[0], threshold_nbr_tracks-self.queries.shape[1])
+
+
+        _, _, _, H, W = video_chunk.shape
+        if is_first_step: 
             self.model.init_video_online_processing()
+            #TODO if the line 243 executed no need to do the rest of this method
             if queries is not None:
                 B, N, D = queries.shape
                 assert D == 3

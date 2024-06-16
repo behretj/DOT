@@ -203,6 +203,8 @@ class CoTracker2(nn.Module):
         S = self.window_len
         device = queries.device
 
+
+
         # B = batch size
         # S = number of frames in the window of the padded video
         # S_trimmed = actual number of frames in the window
@@ -224,6 +226,7 @@ class CoTracker2(nn.Module):
             assert not is_train, "Training not supported in online mode."
         step = S // 2  # How much the sliding window moves at every step
         video = 2 * video - 1.0
+
 
         # The first channel is the frame number
         # The rest are the coordinates of points we want to track
